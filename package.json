@@ -1,0 +1,60 @@
+{
+  "name": "finnote-desktop",
+  "version": "0.3.0-beta.0",
+  "description": "FinNote Desktop - โปรแกรมบันทึกการเงินออฟไลน์ด้วย SQLite พร้อม Local Owner Login และ Encryption at Rest",
+  "main": "electron/main.js",
+  "author": "FinNote",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/validate-desktop.js",
+    "dist:win": "electron-builder --win nsis --x64",
+    "pack": "electron-builder --dir",
+    "dist:portable": "electron-builder --win portable --x64 --config.directories.output=dist-portable --config.win.artifactName=FinNote-Desktop-v0.3.0-Beta-Portable.exe"
+  },
+  "dependencies": {
+    "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.finnote.desktop",
+    "productName": "FinNote Desktop",
+    "asar": true,
+    "files": [
+      "Index.html",
+      "electron/**/*",
+      "assets/**/*",
+      "node_modules/sql.js/dist/sql-wasm.js",
+      "node_modules/sql.js/dist/sql-wasm.wasm",
+      "package.json",
+      "LICENSE"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "FinNote-Desktop-v0.3.0-Beta-Setup.${ext}",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FinNote"
+    }
+  },
+  "productName": "FinNote Desktop"
+}
