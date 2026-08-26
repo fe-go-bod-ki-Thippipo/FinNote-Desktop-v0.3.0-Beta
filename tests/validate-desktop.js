@@ -19,9 +19,10 @@ new vm.Script(preload, { filename: 'preload.js' });
 
 const indexMarkers = [
   'finnoteDesktop', 'SQLite', 'loadDesktopData', 'saveDesktopData',
-  'data-view="accounts"', 'data-view="categories"', 'data-view="recurring"',
+  'data-view="accounts"', 'data-view="categories"', 'data-view="recurring"', 'data-view="alerts"',
   'standardCategoryMaster', 'IN-01', 'IN-14', 'EX-01', 'EX-50',
   'SIDEBAR_DEFAULT_ORDER', 'sidebarSortable', 'btnResetSidebar',
+  'renderTransactionCalendar', 'txCalPrev', 'txCalNext', 'buildFinancialAlerts', 'renderAlertSettings', 'dashboard-alert-trend-grid',
   'rerenderWithInputFocus', 'compositionstart', 'compositionend',
   'id="securityGate"', 'getSecurityGate', 'Recovery Key', 'Encryption at Rest', 'showStartupDiagnostic'
 ];
@@ -50,7 +51,7 @@ console.log(JSON.stringify({
   ok: true,
   product: pkg.build.productName || pkg.productName,
   release: pkg.version,
-  uiVersion: '3.0.0-beta',
+  uiVersion: '0.3.0 Beta',
   encryption: 'AES-256-GCM',
   categoryDefaults: 'IN-01..IN-14 / EX-01..EX-50',
   scripts: scripts.length
