@@ -22,9 +22,9 @@ jobs:
       - name: Validate source
         run: npm test
       - name: Build Setup
-        run: npm run dist:win
+        run: npm run dist:win -- --publish never
       - name: Build Portable
-        run: npm run dist:portable
+        run: npm run dist:portable -- --publish never
       - name: Upload Setup artifact
         uses: actions/upload-artifact@v4
         with:
