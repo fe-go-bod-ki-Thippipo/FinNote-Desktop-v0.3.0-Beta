@@ -10,7 +10,7 @@
     "test": "node tests/validate-desktop.js",
     "dist:win": "electron-builder --win nsis --x64",
     "pack": "electron-builder --dir",
-    "dist:portable": "electron-builder --win portable --x64 --config.directories.output=dist-portable --config.win.artifactName=FinNote-Desktop-v0.3.0-Beta-Portable.exe"
+    "dist:portable": "electron-builder --win portable --x64 --config electron-builder.portable.yml"
   },
   "dependencies": {
     "sql.js": "^1.13.0"
