@@ -827,6 +827,7 @@ table thead th{background:var(--advanced-table-bg,var(--green-700));color:var(--
 .report-mini-icon{display:grid;place-items:center;width:36px;height:36px;flex:0 0 36px;border-radius:12px;background:linear-gradient(135deg,rgba(53,199,121,.12),rgba(123,75,203,.10));font-size:18px}
 .report-mini-label{font-size:10px;color:var(--text-muted)}
 .report-mini-value{font-size:16px;font-weight:800;margin-top:2px}
+.report-card-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 10px}.report-card-actions{display:flex;gap:8px;flex-wrap:wrap}.report-mini{position:relative;cursor:grab}.report-mini.dragging{opacity:.45}.report-mini-drag{font-size:14px;color:var(--text-muted);cursor:grab}.report-mini-menu{margin-left:auto;border:0;background:transparent;color:var(--text-muted);cursor:pointer;font-size:16px}.report-mini-note{font-size:9px;color:var(--text-muted);margin-top:2px}.metric-category-list{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:12px;padding:8px}.metric-category-row{display:flex;align-items:center;gap:8px;padding:7px;border-radius:8px}.metric-category-row:hover{background:var(--surface-soft)}
 .report-bottom-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(300px,.85fr);gap:16px;margin-top:16px}
 .report-category-list{display:grid;gap:13px}
 .report-category-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(130px,2fr) auto;gap:12px;align-items:center;font-size:12px}
@@ -1107,6 +1108,13 @@ function defaultData(){
     },
     // กลุ่มอาหารมาตรฐาน ใช้รวมเฉพาะหมวดอาหารจริงในรายงาน
     foodGroupCategories: standardCategoryMaster().filter(item=>item.type==='expense' && item.id>='EX-01' && item.id<='EX-05').map(item=>item.label),
+    reportMetricCards: [
+      {id:'metric_debt_payment',label:'ชำระหนี้',icon:'💳',source:'system',systemKey:'debtPayment',calc:'sum',categoryIds:[],active:true},
+      {id:'metric_total_out',label:'เงินออกทั้งหมด',icon:'👝',source:'system',systemKey:'totalOut',calc:'sum',categoryIds:[],active:true},
+      {id:'metric_food_daily',label:'ค่าอาหารเฉลี่ย/วัน',icon:'🍜',source:'category',systemKey:'',calc:'avg_day',categoryIds:standardCategoryMaster().filter(item=>item.type==='expense' && item.id>='EX-01' && item.id<='EX-05').map(item=>item.id),active:true},
+      {id:'metric_wants',label:'ของที่อยากได้',icon:'🛍️',source:'category',systemKey:'',calc:'sum',categoryIds:['EX-19'],active:true},
+      {id:'metric_debt_reduced',label:'ยอดหนี้ที่ลดลง',icon:'⬇️',source:'system',systemKey:'debtReduced',calc:'sum',categoryIds:[],active:true}
+    ],
     budgets: Object.fromEntries(standardCategoryLabels('expense').map(label=>[label,0])),
     budgetOverrides: {}, // legacy budget values
     budgetTracking: {}, // { 'YYYY-MM': [{id,level,parentName,categoryId,label,amount}] }
@@ -1368,6 +1376,8 @@ function migrateData(d){
   }
   d.categoryMaster=d.categoryMaster.map((item,index)=>normalizeCategoryMasterItem(Object.assign({id:`USR-${String(index+1).padStart(4,'0')}`,type:'expense',group:'🏷️ หมวดกำหนดเอง',name:item.label||'หมวด',note:'',standard:false,active:true},item),index));
   d.foodGroupCategories = d.foodGroupCategories || def.foodGroupCategories;
+  d.reportMetricCards = Array.isArray(d.reportMetricCards) ? d.reportMetricCards : JSON.parse(JSON.stringify(def.reportMetricCards));
+  d.reportMetricCards = d.reportMetricCards.map((card,index)=>({id:card.id||`metric_${index+1}_${uid()}`,label:String(card.label||'ตัวชี้วัด'),icon:String(card.icon||'📊'),source:card.source==='system'?'system':'category',systemKey:String(card.systemKey||''),calc:['sum','avg_day','avg_month','count'].includes(card.calc)?card.calc:'sum',categoryIds:Array.isArray(card.categoryIds)?card.categoryIds.filter(Boolean):[],active:card.active!==false}));
   d.budgets = Object.assign({}, def.budgets, d.budgets||{});
   d.budgetOverrides = d.budgetOverrides || {};
   d.settings.alertRules = d.settings.alertRules || {};
@@ -4593,13 +4603,9 @@ function renderReports(){
     </section>
   </div>`);
 
-  html.push(`<h3 class="report-heading">ตัวชี้วัดการเงิน</h3>
-  <div class="report-secondary-grid">
-    ${reportMini('ชำระหนี้',flow.debtPayment,'💳')}
-    ${reportMini('เงินออกทั้งหมด',flow.totalOut,'👝')}
-    ${reportMini('ค่าอาหารเฉลี่ย/วัน',foodPerDay,'🍜')}
-    ${reportMini('ของที่อยากได้',wants,'🛍️')}
-    ${reportMini('ยอดหนี้ที่ลดลง',debtPaid,'⬇️')}
+  html.push(`<div class="report-card-toolbar"><h3 class="report-heading" style="margin:0">ตัวชี้วัดการเงิน</h3><div class="report-card-actions"><button class="btn sm" id="btnAddMetricCard">＋ สร้างการ์ด</button><button class="btn sm" id="btnResetMetricCards">↶ รีเซ็ตการจัดวาง</button></div></div>
+  <div class="report-secondary-grid" id="reportMetricCards">
+    ${renderReportMetricCards(list,reportRange,flow,debtPaid)}
   </div>`);
 
   html.push(`<section class="report-panel report-table">
@@ -4638,6 +4644,9 @@ function renderReports(){
   document.getElementById('btnExportJSON').addEventListener('click', exportJSON);
   document.getElementById('btnImportJSON').addEventListener('click', ()=> document.getElementById('fileImport').click());
   document.getElementById('fileImport').addEventListener('change', handleImportFile);
+  document.getElementById('btnAddMetricCard')?.addEventListener('click', ()=>openMetricCardModal());
+  document.getElementById('btnResetMetricCards')?.addEventListener('click', resetMetricCards);
+  bindMetricCardInteractions();
   drawPeriodComparisonChart('reportTrend',trend);
   drawReportPie('reportPie',expenseData);
   drawReportDebtTrendChart('reportDebtTrend',debtTrend);
@@ -4653,6 +4662,55 @@ function reportKpi(label,value,previous,icon,tone,direction){
     <span class="report-change ${cls}">${arrow} ${diff>=0?'+':''}${formatCurrency(diff)} (${pct>=0?'+':''}${pct.toFixed(1)}%)</span>
     <span class="report-change-note">เทียบกับเดือนก่อน</span>
   </article>`;
+}
+function metricCardValue(card,list,range,flow,debtPaid){
+  if(card.source==='system'){
+    const systemValues={debtPayment:flow.debtPayment,totalOut:flow.totalOut,debtReduced:debtPaid,income:flow.income,livingExpense:flow.livingExpense,net:flow.net};
+    return Number(systemValues[card.systemKey]||0);
+  }
+  const ids=new Set(card.categoryIds||[]);
+  const matched=list.filter(t=>ids.has(t.categoryId) && transactionTypeOf(t)!=='transfer');
+  const total=matched.reduce((sum,t)=>sum+Number(t.amount||0),0);
+  if(card.calc==='count') return matched.length;
+  if(card.calc==='avg_day') return total/Math.max(1,elapsedDaysInCycle(reportMonth));
+  if(card.calc==='avg_month') return total;
+  return total;
+}
+function metricCalcNote(card){
+  if(card.source==='system') return 'ข้อมูลจากระบบ';
+  return card.calc==='avg_day'?'เฉลี่ยต่อวัน':card.calc==='avg_month'?'เฉลี่ยต่อเดือน':card.calc==='count'?'จำนวนรายการ':'ยอดรวม';
+}
+function renderReportMetricCards(list,range,flow,debtPaid){
+  return (DATA.reportMetricCards||[]).filter(card=>card.active!==false).map(card=>{
+    const value=metricCardValue(card,list,range,flow,debtPaid);
+    const display=card.calc==='count'?`${Number(value||0).toLocaleString('th-TH')} รายการ`:formatCurrency(value);
+    return `<div class="report-mini" draggable="true" data-metric-id="${escapeHtml(card.id)}"><span class="report-mini-drag" title="ลากเพื่อจัดตำแหน่ง">⠿</span><span class="report-mini-icon">${escapeHtml(card.icon||'📊')}</span><div><div class="report-mini-label">${escapeHtml(card.label)}</div><div class="report-mini-value">${display}</div><div class="report-mini-note">${escapeHtml(metricCalcNote(card))}</div></div><button class="report-mini-menu" data-edit-metric="${escapeHtml(card.id)}" title="แก้ไขการ์ด">⋯</button></div>`;
+  }).join('');
+}
+function bindMetricCardInteractions(){
+  const grid=document.getElementById('reportMetricCards'); if(!grid)return;
+  let draggingId=null;
+  grid.querySelectorAll('[data-metric-id]').forEach(card=>{
+    card.addEventListener('dragstart',()=>{draggingId=card.dataset.metricId;card.classList.add('dragging');});
+    card.addEventListener('dragend',()=>{card.classList.remove('dragging');draggingId=null;});
+    card.addEventListener('dragover',e=>e.preventDefault());
+    card.addEventListener('drop',e=>{e.preventDefault();const targetId=card.dataset.metricId;if(!draggingId||draggingId===targetId)return;const arr=DATA.reportMetricCards||[];const from=arr.findIndex(x=>x.id===draggingId),to=arr.findIndex(x=>x.id===targetId);if(from<0||to<0)return;const [moved]=arr.splice(from,1);arr.splice(to,0,moved);saveData(true);renderReports();});
+  });
+  grid.querySelectorAll('[data-edit-metric]').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();openMetricCardModal(btn.dataset.editMetric);}));
+}
+function openMetricCardModal(cardId=null){
+  const existing=(DATA.reportMetricCards||[]).find(x=>x.id===cardId);
+  const card=existing?JSON.parse(JSON.stringify(existing)):{id:uid(),label:'',icon:'📊',source:'category',systemKey:'',calc:'sum',categoryIds:[],active:true};
+  const categories=(DATA.categoryMaster||[]).filter(x=>x.active!==false);
+  const grouped=['expense','income'].map(type=>{const title=type==='expense'?'รายจ่าย':'รายรับ';return `<div style="margin-top:10px"><strong>${title}</strong>${categories.filter(x=>x.type===type).map(x=>`<label class="metric-category-row"><input type="checkbox" name="metricCat" value="${escapeHtml(x.id)}" ${(card.categoryIds||[]).includes(x.id)?'checked':''}> <span>${escapeHtml(x.icon||'🏷️')} ${escapeHtml(x.parentName||'')} → ${escapeHtml(x.subcategory||x.name||x.label)}</span></label>`).join('')}</div>`}).join('');
+  const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>${existing?'แก้ไขการ์ด':'สร้างการ์ดตัวชี้วัด'}</h3><div class="form-grid"><label>ชื่อการ์ด<input id="metricLabel" value="${escapeHtml(card.label)}" placeholder="เช่น ค่าอาหารเฉลี่ย/วัน"></label><label>ไอคอน<input id="metricIcon" value="${escapeHtml(card.icon)}" maxlength="4"></label><label>แหล่งข้อมูล<select id="metricSource"><option value="category" ${card.source==='category'?'selected':''}>หมวดจาก Category Master</option><option value="system" ${card.source==='system'?'selected':''}>ค่าจากระบบ</option></select></label><label id="metricSystemRow">ค่าระบบ<select id="metricSystemKey"><option value="debtPayment">ชำระหนี้</option><option value="totalOut">เงินออกทั้งหมด</option><option value="debtReduced">ยอดหนี้ที่ลดลง</option><option value="income">รายรับทั้งหมด</option><option value="livingExpense">รายจ่ายทั้งหมด</option><option value="net">เงินคงเหลือ</option></select></label><label>วิธีคำนวณ<select id="metricCalc"><option value="sum">ยอดรวม</option><option value="avg_day">เฉลี่ยต่อวัน</option><option value="avg_month">เฉลี่ยต่อเดือน</option><option value="count">จำนวนรายการ</option></select></label></div><div id="metricCategoryBox"><div class="muted" style="margin:10px 0 6px">เลือกได้หลายหมวด</div><div class="metric-category-list">${grouped}</div></div><div class="btn-row" style="margin-top:14px">${existing?'<button class="btn danger" id="btnDeleteMetric">ลบการ์ด</button>':''}<span style="flex:1"></span><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="btnSaveMetric">บันทึกการ์ด</button></div>`);
+  overlay.querySelector('#metricSystemKey').value=card.systemKey||'debtPayment';overlay.querySelector('#metricCalc').value=card.calc||'sum';
+  const refresh=()=>{const system=overlay.querySelector('#metricSource').value==='system';overlay.querySelector('#metricSystemRow').style.display=system?'block':'none';overlay.querySelector('#metricCategoryBox').style.display=system?'none':'block';};refresh();overlay.querySelector('#metricSource').addEventListener('change',refresh);
+  overlay.querySelector('#btnSaveMetric').addEventListener('click',()=>{const source=overlay.querySelector('#metricSource').value;const label=overlay.querySelector('#metricLabel').value.trim();const categoryIds=[...overlay.querySelectorAll('input[name="metricCat"]:checked')].map(x=>x.value);if(!label)return showToast('กรุณาระบุชื่อการ์ด');if(source==='category'&&!categoryIds.length)return showToast('กรุณาเลือกอย่างน้อย 1 หมวด');const saved={...card,label,icon:overlay.querySelector('#metricIcon').value.trim()||'📊',source,systemKey:source==='system'?overlay.querySelector('#metricSystemKey').value:'',calc:overlay.querySelector('#metricCalc').value,categoryIds:source==='category'?categoryIds:[],active:true};const arr=DATA.reportMetricCards||(DATA.reportMetricCards=[]);const idx=arr.findIndex(x=>x.id===saved.id);if(idx>=0)arr[idx]=saved;else arr.push(saved);saveData(true);closeModal();renderReports();showToast('บันทึกการ์ดแล้ว');});
+  overlay.querySelector('#btnDeleteMetric')?.addEventListener('click',()=>{DATA.reportMetricCards=(DATA.reportMetricCards||[]).filter(x=>x.id!==card.id);saveData(true);closeModal();renderReports();showToast('ลบการ์ดแล้ว');});
+}
+function resetMetricCards(){
+  const defaults=defaultData().reportMetricCards;DATA.reportMetricCards=JSON.parse(JSON.stringify(defaults));saveData(true);renderReports();showToast('รีเซ็ตการ์ดและการจัดวางแล้ว');
 }
 function reportMini(label,value,icon){
   return `<div class="report-mini"><span class="report-mini-icon">${icon}</span><div><div class="report-mini-label">${label}</div><div class="report-mini-value">${formatCurrency(value)}</div></div></div>`;
@@ -4684,7 +4742,7 @@ function reportDebtTrendSeries(ym,count){
     const laterPrincipal=DATA.debtPayments
       .filter(payment=>payment.date>range.endISO)
       .reduce((sum,payment)=>sum+principalEffect(payment),0);
-    return {label:monthLabel(key).split(' ')[0],balance:currentBalance+laterPrincipal,principal};
+    return {label:shortPeriodLabel('month',{...range,key}),balance:currentBalance+laterPrincipal,principal};
   });
 }
 function drawDebtTrendChart(containerId,series){
