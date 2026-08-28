@@ -1404,6 +1404,14 @@ function migrateData(d){
   d.debts.forEach(debt=>{
     if((debt.rate==null || Number(debt.rate)===0) && knownRates[debt.creditor]!=null) debt.rate=knownRates[debt.creditor];
     if(Number(debt.rate)===0 && knownRates[debt.creditor]==null) debt.rate=null;
+    // Debt category migration: keep legacy data intact, but move exact matches to Category Master IDs.
+    // Do not guess a category from the creditor name; unmatched legacy debts remain unassigned until edited.
+    let debtCategory = debt.categoryId ? (d.categoryMaster||[]).find(x=>x.id===debt.categoryId) : null;
+    if(!debtCategory && debt.category){
+      debtCategory=(d.categoryMaster||[]).find(x=>x.type==='expense' && x.parentName==='หนี้สิน/สินเชื่อ' && x.label===debt.category);
+    }
+    debt.categoryId = debtCategory?.id || null;
+    debt.category = debtCategory?.label || debt.category || '';
   });
   d.debtPayments = d.debtPayments || [];
   d.debtPayments.forEach(payment=>{
@@ -1517,7 +1525,7 @@ function migrateData(d){
     const salaryAccount = d.accounts.find(a=>a.name==='บัญชีเงินเดือน') || d.accounts[0];
     const debtTemplate = d.debts.filter(debt=>!debt.closed).map(debt=>({
       id:`rec_debt_${debt.id}`,name:`ชำระ ${debt.creditor}`,transactionType:'debt_payment',
-      amount:Number(debt.installment||0),category:debt.creditor,accountId:salaryAccount?.id||null,debtId:debt.id,
+      amount:Number(debt.installment||0),category:debt.category||'',categoryId:debt.categoryId||null,accountId:salaryAccount?.id||null,debtId:debt.id,
       frequency:'monthly',dueDay:1,active:true,lastGeneratedPeriod:null
     }));
     const categoryById=(id,fallback)=>d.categoryMaster.find(item=>item.id===id&&item.active!==false)?.label || fallback;
@@ -2139,15 +2147,25 @@ function foodGroupSpent(list){
   return DATA.foodGroupCategories.reduce((s,c)=> s + categorySpent(list,c), 0);
 }
 function activeDebts(){ return DATA.debts.filter(d=>!d.closed); }
+function debtCategoryItems(){
+  return (DATA.categoryMaster||[]).filter(item=>item.type==='expense' && item.active!==false && item.parentName==='หนี้สิน/สินเชื่อ');
+}
+function debtCategoryById(id){ return debtCategoryItems().find(item=>item.id===id) || null; }
+function debtCategoryLabel(debt){
+  const item=debtCategoryById(debt?.categoryId);
+  return item ? (item.subcategory||item.name||item.label) : 'ยังไม่ได้กำหนดประเภทหนี้';
+}
 /**
- * เชื่อมรายการรับ-จ่ายเข้ากับหนี้: ถ้าเป็นรายจ่ายและหมวดตรงกับชื่อเจ้าหนี้ของหนี้ที่ยังไม่ปิด
- * จะหักยอดคงเหลือของหนี้นั้นอัตโนมัติ และบันทึกลงประวัติการชำระหนี้ (ที่มา = รายการรับ-จ่าย)
+ * เชื่อมรายการเข้ากับหนี้ด้วย debtId โดยตรง ไม่ใช้ชื่อเจ้าหนี้เป็นกุญแจเชื่อมอีกต่อไป
+ * categoryId ใช้สำหรับจัดหมวด/รายงาน ส่วน debtId ระบุหนี้ก้อนที่ต้องปรับยอดอย่างแน่นอน
  */
 function applyDebtLinkForTransaction(record){
   record.linkedDebtId = null;
-  if(record.type !== 'expense') return;
-  const debt = DATA.debts.find(d=> !d.closed && d.creditor === record.category);
+  if(transactionTypeOf(record)!=='debt_payment' || !record.debtId) return;
+  const debt = DATA.debts.find(d=> !d.closed && d.id===record.debtId);
   if(!debt) return;
+  record.categoryId = debt.categoryId || record.categoryId || null;
+  record.category = debt.category || record.category || '';
   if(debt.balance != null){
     debt.balance = Math.max(0, debt.balance - record.amount);
     if(debt.balance === 0) debt.closed = true;
@@ -3182,7 +3200,7 @@ function renderDebts(){
     ${dashCard('จำนวนหนี้ที่ยังไม่ปิด', active.length + ' รายการ', '', '📁')}
   </div>`);
   html.push(`<div class="row-between" style="margin-bottom:12px;"><h3>รายการหนี้</h3><button class="btn primary sm" id="btnAddDebt">+ เพิ่มหนี้</button></div>`);
-  html.push(`<div class="alert-box alert-warn">💡 <span>เชื่อมกับหมวดรายจ่ายแล้ว: ในหน้า "รายการ" ถ้าเลือกหมวดเป็นชื่อเจ้าหนี้ (มีสัญลักษณ์ 💳 นำหน้า) ระบบจะหักยอดคงเหลือของหนี้นั้นให้อัตโนมัติ ไม่ต้องมาบันทึกซ้ำที่นี่ ปุ่ม "บันทึกชำระ" ด้านล่างเหมาะกับกรณีที่ไม่ได้บันทึกเป็นรายจ่ายทั่วไป เช่น บันทึกย้อนหลังหรือต้องการแยกเงินต้น/ดอกเบี้ย</span></div>`);
+  html.push(`<div class="alert-box alert-warn">💡 <span>ระบบหนี้ใช้ Category Master กลาง: ประเภทหนี้ใช้สำหรับจัดหมวดและรายงาน ส่วนชื่อเจ้าหนี้เป็นข้อมูลของหนี้แต่ละรายการ การบันทึกชำระจะเชื่อมด้วยรหัสหนี้โดยตรง ไม่ใช้ชื่อเจ้าหนี้เป็นหมวดอีกต่อไป</span></div>`);
 
   html.push(`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));">`);
   DATA.debts.forEach(d=>{
@@ -3190,6 +3208,7 @@ function renderDebts(){
     html.push(`<div class="card" style="${d.closed?'opacity:.6;':''}">
       <div class="row-between">
         <div class="label">${escapeHtml(d.creditor)}</div>
+        <div class="sub">ประเภท: ${escapeHtml(debtCategoryLabel(d))}</div>
         ${d.closed?'<span class="badge badge-gray">ปิดแล้ว</span>':'<span class="badge badge-ok">ใช้งาน</span>'}
       </div>
       <div class="value" style="font-size:19px;">${d.balance==null?'ยังไม่ทราบยอด':formatCurrency(d.balance)}</div>
@@ -3251,11 +3270,12 @@ function toggleDebtClosed(id){
 }
 function openDebtModal(id){
   const editing = id ? DATA.debts.find(d=>d.id===id) : null;
-  const d = editing || { id: uid(), creditor:'', principal:'', balance:'', rate:0, installment:'', dueDay:'', closed:false, note:'' };
+  const d = editing || { id: uid(), creditor:'', categoryId:null, category:'', principal:'', balance:'', rate:0, installment:'', dueDay:'', closed:false, note:'' };
   const body = `
     <button class="modal-close" data-close>✕</button>
     <h3>${editing?'แก้ไขหนี้':'เพิ่มหนี้ใหม่'}</h3>
     <div class="form-row"><label>เจ้าหนี้</label><input type="text" id="dCreditor" value="${escapeHtml(d.creditor)}" placeholder="เช่น สินเชื่อส่วนบุคคล, บัตรเครดิต"></div>
+    <div class="form-row"><label>ประเภทหนี้</label><select id="dCategoryId"><option value="">— เลือกประเภทหนี้ —</option>${debtCategoryItems().map(item=>`<option value="${item.id}" ${item.id===d.categoryId?'selected':''}>${escapeHtml(item.subcategory||item.name||item.label)}</option>`).join('')}</select><div class="sub">ดึงจาก Category Master › หนี้สิน/สินเชื่อ</div></div>
     <div class="form-grid">
       <div class="form-row"><label>ยอดเริ่มต้น (บาท)</label><input type="number" id="dPrincipal" value="${d.principal??''}" placeholder="ถ้ายังไม่ทราบ ปล่อยว่างไว้"></div>
       <div class="form-row"><label>ยอดคงเหลือ (บาท)</label><input type="number" id="dBalance" value="${d.balance??''}" placeholder="ถ้ายังไม่ทราบ ปล่อยว่างไว้"></div>
@@ -3275,10 +3295,13 @@ function openDebtModal(id){
   overlay.querySelector('#btnSaveDebt').addEventListener('click', ()=>{
     const creditor = overlay.querySelector('#dCreditor').value.trim();
     if(!creditor){ showToast('กรุณากรอกชื่อเจ้าหนี้'); return; }
+    const categoryId = overlay.querySelector('#dCategoryId').value || null;
+    const debtCategory = debtCategoryById(categoryId);
+    if(!debtCategory){ showToast('กรุณาเลือกประเภทหนี้จาก Category Master'); return; }
     const principalRaw = overlay.querySelector('#dPrincipal').value;
     const balanceRaw = overlay.querySelector('#dBalance').value;
     const record = {
-      id: d.id, creditor,
+      id: d.id, creditor, categoryId:debtCategory.id, category:debtCategory.label,
       principal: principalRaw===''? null : parseFloat(principalRaw),
       balance: balanceRaw===''? null : parseFloat(balanceRaw),
       rate: parseFloat(overlay.querySelector('#dRate').value)||0,
@@ -3329,7 +3352,8 @@ function syncTransactionFromDebtPayment(payment, debt, createIfMissing){
   if(tx.sourceType==='debt_payment'){
     tx.type = 'debt_payment';
     tx.transactionType = 'debt_payment';
-    tx.category = debt.creditor;
+    tx.categoryId = debt.categoryId || null;
+    tx.category = debt.category || '';
     tx.note = `ชำระหนี้ ${debt.creditor}`;
   }
 }
@@ -4790,7 +4814,7 @@ function generateRecurringForCurrentPeriod(){
     due.forEach(r=>{
       DATA.transactions.push({
         id:uid(),date,type:r.transactionType,transactionType:r.transactionType,amount:Number(r.amount||0),
-        category:r.category,note:r.name,accountId:r.accountId||null,debtId:r.debtId||null,
+        category:r.category,categoryId:r.categoryId||null,note:r.name,accountId:r.accountId||null,debtId:r.debtId||null,
         sourceType:'recurring',sourceId:r.id,status:'need',grabbike:false,remark:'สร้างจากรายการประจำ',
         createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()
       });
@@ -5042,7 +5066,8 @@ function openRecurringModal(id){
     const debt=type==='debt_payment'?DATA.debts.find(entry=>entry.id===categoryValue):null;
     Object.assign(item,{
       name,transactionType:type,amount,
-      category:debt?debt.creditor:categoryValue,
+      category:debt?(debt.category||''):categoryValue,
+      categoryId:debt?(debt.categoryId||null):categoryIdForLabel(type==='income'?'income':'expense',categoryValue),
       debtId:debt?debt.id:null,
       accountId:overlay.querySelector('#recAccount').value||null,
       frequency:'monthly',
