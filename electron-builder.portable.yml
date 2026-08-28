@@ -1,0 +1,12 @@
+appId: com.finnote.desktop.portable
+productName: FinNote Desktop
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  artifactName: FinNote-Desktop-v0.3.0-Beta-Portable.${ext}
+  executableName: FinNote-Portable
+  icon: build/icon.ico
+directories:
+  output: dist-portable
