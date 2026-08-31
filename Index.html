@@ -171,7 +171,25 @@ main{flex:1;min-width:0;display:flex;flex-direction:column;}
 .progress.danger>div{background:var(--danger);}
 
 /* ---------- Dashboard v1.4 ---------- */
-.dashboard-shell{display:grid;gap:16px;}
+.dashboard-shell{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px;align-items:start;}
+.dashboard-shell>.dashboard-toolbar{grid-column:1/-1;}
+.dashboard-shell>.dashboard-widget{grid-column:span var(--widget-span,12);min-width:0;}
+.dashboard-shell>.dashboard-widget[data-default-span="3"]{--widget-span:3;}
+.dashboard-shell>.dashboard-widget[data-default-span="4"]{--widget-span:4;}
+.dashboard-shell>.dashboard-widget[data-default-span="5"]{--widget-span:5;}
+.dashboard-shell>.dashboard-widget[data-default-span="6"]{--widget-span:6;}
+.dashboard-shell>.dashboard-widget[data-default-span="7"]{--widget-span:7;}
+.dashboard-shell>.dashboard-widget[data-default-span="12"]{--widget-span:12;}
+@media(max-width:1100px){.dashboard-shell>.dashboard-widget{--widget-span:6!important;}.dashboard-shell>.dashboard-widget[data-default-span="12"]{--widget-span:12!important;}}
+@media(max-width:760px){.dashboard-shell>.dashboard-widget{grid-column:1/-1!important;}}
+.dashboard-layout-tools{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-bottom:-6px;}
+.dashboard-shell.layout-editing>.dashboard-widget{outline:2px dashed var(--primary);outline-offset:3px;cursor:move;position:relative;}
+.dashboard-shell.layout-editing>.dashboard-widget::before{content:"☰ ลากการ์ดนี้";position:absolute;right:8px;top:6px;font-size:11px;background:var(--card);padding:3px 7px;border:1px solid var(--border);border-radius:999px;z-index:5;}
+.dashboard-widget.widget-hidden{display:none!important;}
+.dashboard-widget[draggable="true"]{user-select:none;}
+.dashboard-kpi.dashboard-widget,.mini-stat.dashboard-widget{height:100%;}
+.dashboard-widget-tools{position:absolute;left:8px;top:6px;z-index:7;display:flex;gap:4px;align-items:center;}
+.dashboard-widget-tools select{height:30px;padding:3px 28px 3px 8px;font-size:11px;border-radius:9px;}
 .dashboard-toolbar{
   display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
   background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);
@@ -1119,6 +1137,8 @@ function defaultData(){
     budgetOverrides: {}, // legacy budget values
     budgetTracking: {}, // { 'YYYY-MM': [{id,level,parentName,categoryId,label,amount}] }
     budgetOrder: {}, // { 'YYYY-MM': [trackingId,...] }
+    dashboardLayout: {order:[],hidden:[],sizes:{}},
+    alertCompletion: {},
     recurringTemplates: [],
     transactions: [],
     debts: [
@@ -1387,6 +1407,11 @@ function migrateData(d){
   d.settings.alertRules.recurring = {...{active:true,daysBefore:3}, ...(d.settings.alertRules.recurring||{})};
   d.budgetTracking = d.budgetTracking || {};
   d.budgetOrder = d.budgetOrder || {};
+  d.dashboardLayout = d.dashboardLayout || {order:[],hidden:[]};
+  d.dashboardLayout.order = Array.isArray(d.dashboardLayout.order)?d.dashboardLayout.order:[];
+  d.dashboardLayout.hidden = Array.isArray(d.dashboardLayout.hidden)?d.dashboardLayout.hidden:[];
+  d.dashboardLayout.sizes = d.dashboardLayout.sizes || {};
+  d.alertCompletion = d.alertCompletion || {};
   if(Object.prototype.hasOwnProperty.call(d.budgets,'น้ำมัน GrabBike')){
     if(!Number(d.budgets['ค่าเดินทางงานเสริม'])) d.budgets['ค่าเดินทางงานเสริม'] = Number(d.budgets['น้ำมัน GrabBike']||0);
     delete d.budgets['น้ำมัน GrabBike'];
@@ -1435,6 +1460,12 @@ function migrateData(d){
   });
   d.savings = d.savings || [];
   d.savingsLogs = d.savingsLogs || [];
+  d.savings.forEach(goal=>{
+    if(goal.openingAmount==null){
+      const logTotal=d.savingsLogs.filter(log=>log.savingsId===goal.id).reduce((sum,log)=>sum+Number(log.amount||0),0);
+      goal.openingAmount=Number(goal.currentAmount||0)-logTotal;
+    }
+  });
   d.plans = d.plans || def.plans;
   d.plans.forEach(plan=>{
     plan.startDateISO = plan.startDateISO || plan.startDate || todayISO();
@@ -2315,6 +2346,9 @@ function currentMonthKey(){ return monthKey(todayISO()); }
 /* ---------------------------- Dashboard period selector ---------------------------- */
 let dashboardPeriod = 'month'; // day | week | month | quarter | year
 let dashboardRefDate = todayISO();
+let dashboardLayoutEditing=false;
+let dashboardAlertsExpanded=false;
+let dashboardAlertFilter='pending';
 const PERIOD_DEFS = [
   {key:'day', label:'รายวัน'},
   {key:'week', label:'รายสัปดาห์'},
@@ -2461,26 +2495,29 @@ function renderDashboard(){
       </div>
       <button class="btn sm" id="periodNext" aria-label="ช่วงถัดไป" ${isAtOrAfterToday?'disabled':''}>→</button>
     </div>
+    <button class="btn sm" id="btnDashboardLayout">${dashboardLayoutEditing?'✓ เสร็จสิ้น':'⚙️ จัดหน้า Dashboard'}</button>
+    <button class="btn sm" id="btnDashboardShowAll" ${dashboardLayoutEditing?'':'style="display:none"'}>👁 แสดงทั้งหมด</button><button class="btn sm" id="btnDashboardReset" ${dashboardLayoutEditing?'':'style="display:none"'}>↺ Reset Layout</button>
   </div>`);
 
-  html.push(`<div class="dashboard-kpis">
-    ${dashboardKpi(PERIOD_INCOME_LABEL[dashboardPeriod],formatCurrency(income),'💰','income','เงินเข้าตามช่วงที่เลือก')}
-    ${dashboardKpi('ค่าใช้จ่าย + หนี้สินที่จ่าย',formatCurrency(flow.totalOut),'📤','outflow',`ค่าใช้จ่าย ${formatCurrency(expense)} · หนี้ ${formatCurrency(flow.debtPayment)}`)}
-    ${dashboardKpi('เงินคงเหลือ',formatCurrency(balance),balance<0?'⚠️':'👛','cashflow',balance<0?'เงินออกสูงกว่ารายได้':'รายได้หักค่าใช้จ่ายและหนี้แล้ว')}
-  </div>`);
+  html.push(dashboardKpi(PERIOD_INCOME_LABEL[dashboardPeriod],formatCurrency(income),'💰','income','เงินเข้าตามช่วงที่เลือก','kpi-income',4));
+  html.push(dashboardKpi('ค่าใช้จ่าย + หนี้สินที่จ่าย',formatCurrency(flow.totalOut),'📤','outflow',`ค่าใช้จ่าย ${formatCurrency(expense)} · หนี้ ${formatCurrency(flow.debtPayment)}`,'kpi-outflow',4));
+  html.push(dashboardKpi('เงินคงเหลือ',formatCurrency(balance),balance<0?'⚠️':'👛','cashflow',balance<0?'เงินออกสูงกว่ารายได้':'รายได้หักค่าใช้จ่ายและหนี้แล้ว','kpi-balance',4));
 
   // แจ้งเตือนการเงิน + แนวโน้มรายรับ–เงินออก แบบ 2 คอลัมน์
   const alerts=buildFinancialAlerts(ym,list);
-  html.push(`<div class="dashboard-alert-trend-grid"><div class="panel dashboard-panel"><div class="dashboard-panel-head"><div><h3>🔔 แจ้งเตือนการเงิน</h3><div class="sub">ดึงข้อมูลจากงบประมาณ หนี้ เงินออม และรายการประจำ</div></div><span class="hint" data-nav="alerts" style="cursor:pointer;text-decoration:underline;">จัดการ</span></div><div class="dashboard-alerts">`);
-  if(alerts.length)alerts.slice(0,6).forEach(a=>html.push(`<div class="alert-box alert-compact ${a.level==='danger'?'alert-danger':'alert-warn'}">${a.icon} <span><b>${escapeHtml(a.source)}</b> · ${a.msg}</span></div>`));else html.push(emptyState('👍','ยังไม่มีรายการที่ต้องแจ้งเตือน','ระบบจะแสดงเมื่อข้อมูลเข้าเงื่อนไขที่กำหนด'));
-  html.push(`</div>${alerts.length>6?`<div class="sub" style="margin-top:8px">และอีก ${alerts.length-6} รายการ</div>`:''}</div><div class="panel dashboard-panel"><div class="dashboard-panel-head"><div><h3>แนวโน้มรายรับ–เงินออก</h3><div class="sub">${periodCompareTitle(dashboardPeriod)}</div></div><span class="badge badge-gray">${range.label}</span></div><div id="periodCompareChart"></div></div></div>`);
+  const isDone=a=>!!DATA.alertCompletion[a.id];
+  const filteredAlerts=alerts.filter(a=>dashboardAlertFilter==='all'||(dashboardAlertFilter==='done'?isDone(a):!isDone(a)));
+  const shownAlerts=dashboardAlertsExpanded?filteredAlerts:filteredAlerts.slice(0,6);
+  html.push(`<div class="panel dashboard-panel dashboard-widget" data-widget-id="alerts" data-default-span="6"><div class="dashboard-panel-head"><div><h3>🔔 แจ้งเตือนการเงิน</h3><div class="sub">ดึงข้อมูลจากงบประมาณ หนี้ เงินออม และรายการประจำ</div></div><span class="hint" data-nav="alerts" style="cursor:pointer;text-decoration:underline;">จัดการ</span></div><div class="filters" style="margin:8px 0"><button class="btn sm ${dashboardAlertFilter==='pending'?'primary':''}" data-alert-filter="pending">ยังไม่ได้ทำ</button><button class="btn sm ${dashboardAlertFilter==='done'?'primary':''}" data-alert-filter="done">ทำแล้ว</button><button class="btn sm ${dashboardAlertFilter==='all'?'primary':''}" data-alert-filter="all">ทั้งหมด</button></div><div class="dashboard-alerts">`);
+  if(shownAlerts.length)shownAlerts.forEach(a=>html.push(`<div class="alert-box alert-compact ${a.level==='danger'?'alert-danger':'alert-warn'}" style="display:flex;justify-content:space-between;gap:8px"><span>${a.icon} <b>${escapeHtml(a.source)}</b> · ${a.msg}</span><button class="btn sm" data-alert-done="${escapeHtml(a.id)}">${isDone(a)?'↩ ยกเลิกทำแล้ว':'✓ ทำแล้ว'}</button></div>`));else html.push(emptyState('👍',dashboardAlertFilter==='done'?'ยังไม่มีรายการที่ทำแล้ว':'ไม่มีรายการค้างที่ต้องทำ',''));
+  html.push(`</div>${filteredAlerts.length>6?`<button class="btn sm" id="btnToggleAllAlerts" style="margin-top:8px">${dashboardAlertsExpanded?'ย่อรายการ':`ดูทั้งหมด (${filteredAlerts.length})`}</button>`:''}</div>`);
+  html.push(`<div class="panel dashboard-panel dashboard-widget" data-widget-id="trend" data-default-span="6"><div class="dashboard-panel-head"><div><h3>แนวโน้มรายรับ–เงินออก</h3><div class="sub">${periodCompareTitle(dashboardPeriod)}</div></div><span class="badge badge-gray">${range.label}</span></div><div id="periodCompareChart"></div></div>`);
 
-  html.push(`<div class="dashboard-grid equal">`);
-  html.push(`<div class="panel dashboard-panel">
+  html.push(`<div class="panel dashboard-panel dashboard-widget" data-widget-id="spending-pie" data-default-span="6">
     <div class="dashboard-panel-head"><div><h3>สัดส่วนการใช้เงิน</h3><div class="sub">ค่าใช้จ่ายทั่วไปและชำระหนี้ · ${range.label}</div></div></div>
     <div id="pieChartWrap"></div>
   </div>`);
-  html.push(`<div class="panel dashboard-panel">
+  html.push(`<div class="panel dashboard-panel dashboard-widget" data-widget-id="top-expenses" data-default-span="6">
     <div class="dashboard-panel-head"><div><h3>5 รายการเงินออกสูงสุด</h3><div class="sub">รวมค่าใช้จ่ายทั่วไปและชำระหนี้</div></div></div>
     <div class="top-expense-list">
       ${topExpenses.length ? topExpenses.map((x,i)=>`<div class="top-expense-row">
@@ -2489,10 +2526,8 @@ function renderDashboard(){
       </div>`).join('') : emptyState('📊','ยังไม่มีข้อมูลรายจ่าย','')}
     </div>
   </div>`);
-  html.push(`</div>`);
 
-  html.push(`<div class="dashboard-grid">`);
-  html.push(`<div class="panel dashboard-panel">
+  html.push(`<div class="panel dashboard-panel dashboard-widget" data-widget-id="financial-health" data-default-span="6">
     <div class="dashboard-panel-head"><div><h3>สุขภาพการเงิน</h3><div class="sub">ภาพรวมเงินออม บัญชี และภาระหนี้</div></div></div>
     <div class="dashboard-health">
       ${healthItem('เงินออมสะสม',savingsBalance,savingsPct,savingsTarget>0?`เป้าหมาย ${formatCurrency(savingsTarget)}`:'ยังไม่ได้กำหนดเป้าหมาย','ok')}
@@ -2501,20 +2536,17 @@ function renderDashboard(){
       ${healthItem('กองทุนสำรองเลี้ยงชีพ',providentFund,100,'ตามช่วงเวลาที่เลือก','ok')}
     </div>
   </div>`);
-  html.push(`<div class="panel dashboard-panel">
+  html.push(`<div class="panel dashboard-panel dashboard-widget" data-widget-id="budget-chart" data-default-span="6">
     <div class="dashboard-panel-head"><div><h3>งบประมาณเดือนนี้</h3><div class="sub">งบเทียบกับยอดใช้จริง</div></div></div>
     <div id="barChartWrap"></div>
   </div>`);
-  html.push(`</div>`);
 
-  html.push(`<div class="dashboard-secondary-stats">
-    ${miniStat('เงินต้นที่ลดลง',formatCurrency(principalReduced),'⬇️')}
-    ${miniStat('ยอดโอนระหว่างบัญชี',formatCurrency(transfers),'↔️')}
-    ${miniStat('เงินเหลือและเงินสะสมช่วงนี้',formatCurrency(periodSaving),'🐷')}
-    ${miniStat('ยอดหนี้คงเหลือปัจจุบัน',formatCurrency(debtBal),'💳')}
-  </div>`);
+  html.push(miniStat('เงินต้นที่ลดลง',formatCurrency(principalReduced),'⬇️','principal-reduced',3));
+  html.push(miniStat('ยอดโอนระหว่างบัญชี',formatCurrency(transfers),'↔️','transfers',3));
+  html.push(miniStat('เงินเหลือและเงินสะสมช่วงนี้',formatCurrency(periodSaving),'🐷','period-saving',3));
+  html.push(miniStat('ยอดหนี้คงเหลือปัจจุบัน',formatCurrency(debtBal),'💳','debt-balance',3));
 
-  html.push(`<div class="dashboard-bottom-grid"><div><div class="section-title"><h3>รายการล่าสุด</h3><span class="hint" data-nav="transactions" style="cursor:pointer;text-decoration:underline;">ดูทั้งหมด</span></div>`);
+  html.push(`<div class="dashboard-widget" data-widget-id="recent-transactions" data-default-span="6"><div class="section-title"><h3>รายการล่าสุด</h3><span class="hint" data-nav="transactions" style="cursor:pointer;text-decoration:underline;">ดูทั้งหมด</span></div>`);
   html.push(`<div class="panel">`);
   const recent = [...DATA.transactions].sort((a,b)=> (b.date+b.id).localeCompare(a.date+a.id)).slice(0,5);
   if(recent.length===0){
@@ -2532,16 +2564,16 @@ function renderDashboard(){
       </div>`);
     });
   }
-  html.push(`</div></div><div>`);
+  html.push(`</div></div>`);
 
   // หมวดใกล้เต็มงบ (เดือนนี้) — ใช้ข้อมูลชุดเดียวกับหน้าจัดการงบประมาณ
-  html.push(`<div class="section-title"><h3>หมวดที่ใกล้เต็มงบ (เดือนนี้)</h3></div><div class="panel">`);
+  html.push(`<div class="dashboard-widget" data-widget-id="budget-near-full" data-default-span="6"><div class="section-title"><h3>หมวดที่ใกล้เต็มงบ (เดือนนี้)</h3></div><div class="panel">`);
   const trackedNear=budgetTrackingForMonth(ym),nearFull=trackedNear.map(row=>{const budget=Number(row.amount||0),spent=trackedBudgetSpent(row,list,trackedNear),pct=budget>0?spent/budget*100:0,label=row.level==='parent'?row.parentName:`${row.parentName} › ${row.label}`;return{label,budget,spent,pct};}).filter(x=>x.budget>0&&x.pct>=60).sort((a,b)=>b.pct-a.pct);
   if(!trackedNear.length)html.push(emptyState('🎯','ยังไม่ได้ตั้งงบประมาณเดือนนี้','ไปที่ “จัดการงบประมาณ” เพื่อเลือกหมวดที่ต้องการติดตาม'));else if(!nearFull.length)html.push(emptyState('👍','ยังไม่มีหมวดที่ใกล้เต็มงบ',''));else nearFull.forEach(x=>{const tone=budgetTone(x.spent,x.budget);html.push(`<div style="margin-bottom:12px"><div class="row-between"><span>${escapeHtml(x.label)}</span><span class="muted">${formatCurrency(x.spent)} / ${formatCurrency(x.budget)} · ${x.pct.toFixed(0)}%</span></div><div class="progress ${tone}"><div style="width:${clamp(x.pct,0,100)}%"></div></div></div>`);});
-  html.push(`</div></div></div>`);
+  html.push(`</div></div>`);
 
   // แผนคืนห้อง
-  html.push(`<div class="section-title"><h3>ความคืบหน้าแผน</h3></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">`);
+  html.push(`<div class="dashboard-widget" data-widget-id="plans-progress" data-default-span="12"><div class="section-title"><h3>ความคืบหน้าแผน</h3></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));">`);
   DATA.plans.forEach(p=>{
     const done = p.checklist.filter(i=>i.done).length;
     const pct = p.checklist.length ? Math.round(done/p.checklist.length*100) : 0;
@@ -2553,10 +2585,17 @@ function renderDashboard(){
       <div class="sub">${daysLeft>=0? `เหลือ ${daysLeft} วัน` : `เลยกำหนด ${Math.abs(daysLeft)} วัน`} · ประหยัด ${formatCurrency(p.monthlySaving)}/เดือน</div>
     </div>`);
   });
-  html.push(`</div>`);
+  html.push(`</div></div>`);
   html.push(`</div>`);
 
   document.getElementById('content').innerHTML = html.join('');
+  initDashboardLayout();
+  document.querySelectorAll('[data-alert-filter]').forEach(b=>b.addEventListener('click',()=>{dashboardAlertFilter=b.dataset.alertFilter;renderDashboard();}));
+  document.querySelectorAll('[data-alert-done]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.alertDone;if(DATA.alertCompletion[id])delete DATA.alertCompletion[id];else DATA.alertCompletion[id]={doneAt:new Date().toISOString()};saveData(true);renderDashboard();}));
+  const toggleAlerts=document.getElementById('btnToggleAllAlerts');if(toggleAlerts)toggleAlerts.addEventListener('click',()=>{dashboardAlertsExpanded=!dashboardAlertsExpanded;renderDashboard();});
+  document.getElementById('btnDashboardLayout').addEventListener('click',()=>{dashboardLayoutEditing=!dashboardLayoutEditing;renderDashboard();});
+  document.getElementById('btnDashboardShowAll').addEventListener('click',()=>{DATA.dashboardLayout.hidden=[];saveData(true);renderDashboard();});
+  document.getElementById('btnDashboardReset').addEventListener('click',()=>{DATA.dashboardLayout={order:[],hidden:[],sizes:{}};saveData(true);renderDashboard();showToast('คืนค่าการจัดหน้า Dashboard แล้ว');});
   document.querySelectorAll('[data-nav]').forEach(el=> el.addEventListener('click',()=> navigate(el.dataset.nav)));
 
   document.querySelectorAll('#periodTabbar [data-period]').forEach(b=>{
@@ -2580,8 +2619,65 @@ function renderDashboard(){
   drawBudgetBarChart('barChartWrap', ym, list);
   drawPeriodComparisonChart('periodCompareChart', buildPeriodComparisonSeries(dashboardPeriod, dashboardRefDate));
 }
-function dashboardKpi(label,value,icon,tone,sub){
-  return `<div class="dashboard-kpi ${tone}">
+function initDashboardLayout(){
+  const shell=document.querySelector('.dashboard-shell');if(!shell)return;
+  const children=[...shell.children].filter(el=>el.classList.contains('dashboard-widget'));
+  const layout=DATA.dashboardLayout||{order:[],hidden:[],sizes:{}};
+  layout.order=Array.isArray(layout.order)?layout.order:[];
+  layout.hidden=Array.isArray(layout.hidden)?layout.hidden:[];
+  layout.sizes=layout.sizes||{};
+  // REQ-01: ทุกการ์ด/Widget มีรหัสคงที่ของตัวเอง จึงย้ายและปรับขนาดแยกกันได้
+  children.forEach((el,i)=>{
+    const id=el.dataset.widgetId||`dashboard-item-${i+1}`;
+    el.dataset.widgetId=id;
+    const savedSpan=Number(layout.sizes[id]||0);
+    const defaultSpan=Number(el.dataset.defaultSpan||12);
+    const span=[3,4,5,6,7,8,9,12].includes(savedSpan)?savedSpan:defaultSpan;
+    el.style.setProperty('--widget-span',String(span));
+    el.classList.toggle('widget-hidden',layout.hidden.includes(id)&&!dashboardLayoutEditing);
+  });
+  const order=layout.order;
+  children.slice().sort((a,b)=>{
+    const ai=order.indexOf(a.dataset.widgetId),bi=order.indexOf(b.dataset.widgetId);
+    if(ai<0&&bi<0)return children.indexOf(a)-children.indexOf(b);
+    if(ai<0)return 1;if(bi<0)return -1;return ai-bi;
+  }).forEach(el=>shell.appendChild(el));
+  shell.classList.toggle('layout-editing',dashboardLayoutEditing);
+  if(!dashboardLayoutEditing)return;
+  let dragging=null;
+  const saveOrder=()=>{
+    layout.order=[...shell.querySelectorAll(':scope > .dashboard-widget')].map(x=>x.dataset.widgetId);
+    DATA.dashboardLayout=layout;saveData(true);
+  };
+  children.forEach(el=>{
+    const id=el.dataset.widgetId;
+    el.classList.remove('widget-hidden');
+    el.style.opacity=layout.hidden.includes(id)?'.45':'';
+    const tools=document.createElement('div');
+    tools.className='dashboard-widget-tools';
+    const currentSpan=Number(layout.sizes[id]||el.dataset.defaultSpan||12);
+    tools.innerHTML=`<select data-widget-size aria-label="ขนาดการ์ด"><option value="3" ${currentSpan===3?'selected':''}>1/4 แถว</option><option value="4" ${currentSpan===4?'selected':''}>1/3 แถว</option><option value="6" ${currentSpan===6?'selected':''}>1/2 แถว</option><option value="12" ${currentSpan===12?'selected':''}>เต็มแถว</option></select><button class="btn sm" data-widget-hide>${layout.hidden.includes(id)?'แสดง':'ซ่อน'}</button>`;
+    el.appendChild(tools);
+    tools.querySelector('[data-widget-size]').onchange=e=>{
+      e.stopPropagation();layout.sizes[id]=Number(e.target.value);DATA.dashboardLayout=layout;saveData(true);renderDashboard();
+    };
+    tools.querySelector('[data-widget-hide]').onclick=e=>{
+      e.stopPropagation();const set=new Set(layout.hidden);set.has(id)?set.delete(id):set.add(id);layout.hidden=[...set];DATA.dashboardLayout=layout;saveData(true);renderDashboard();
+    };
+    el.draggable=true;
+    el.addEventListener('dragstart',e=>{if(e.target.closest('button,select,input,a')){e.preventDefault();return;}dragging=el;el.style.opacity='.55';});
+    el.addEventListener('dragend',()=>{if(dragging)dragging.style.opacity='';dragging=null;saveOrder();});
+    el.addEventListener('dragover',e=>{
+      e.preventDefault();const t=e.currentTarget;if(!dragging||t===dragging)return;
+      const rect=t.getBoundingClientRect();
+      const before=(e.clientY<rect.top+rect.height/2)||(Math.abs(e.clientY-(rect.top+rect.height/2))<rect.height*.2&&e.clientX<rect.left+rect.width/2);
+      shell.insertBefore(dragging,before?t:t.nextSibling);
+    });
+    el.addEventListener('drop',e=>{e.preventDefault();saveOrder();});
+  });
+}
+function dashboardKpi(label,value,icon,tone,sub,widgetId='',span=4){
+  return `<div class="dashboard-kpi ${tone} dashboard-widget" data-widget-id="${escapeHtml(widgetId)}" data-default-span="${span}">
     <div class="kpi-head"><span>${label}</span><span class="kpi-icon">${icon}</span></div>
     <div class="kpi-value">${value}</div>
     <div class="kpi-sub">${sub}</div>
@@ -2596,8 +2692,8 @@ function healthItem(label,value,pct,sub,tone){
     <div class="sub">${sub}</div>
   </div>`;
 }
-function miniStat(label,value,icon){
-  return `<div class="mini-stat"><div class="label">${icon} ${label}</div><div class="value">${value}</div></div>`;
+function miniStat(label,value,icon,widgetId='',span=3){
+  return `<div class="mini-stat dashboard-widget" data-widget-id="${escapeHtml(widgetId)}" data-default-span="${span}"><div class="label">${icon} ${label}</div><div class="value">${value}</div></div>`;
 }
 function toneFor(){ return ''; }
 function dashCard(label, value, tone, icon){
@@ -2620,10 +2716,10 @@ function emptyState(icon,title,sub){
 function daysUntilMonthDay(day){const now=new Date(todayISO()+'T00:00:00'),d=Math.max(1,Math.min(28,Number(day||1)));let target=new Date(now.getFullYear(),now.getMonth(),d);if(target<now)target=new Date(now.getFullYear(),now.getMonth()+1,d);return Math.round((target-now)/86400000);}
 function buildFinancialAlerts(ym,list){
   const alerts=[],rules=DATA.settings.alertRules||{},budgetRule=rules.budget||{active:true,warningPct:80,dangerPct:100},tracked=budgetTrackingForMonth(ym);
-  if(budgetRule.active!==false) tracked.forEach(row=>{const budget=Number(row.amount||0);if(budget<=0)return;const spent=trackedBudgetSpent(row,list,tracked),pct=spent/budget*100,label=row.level==='parent'?row.parentName:`${row.parentName} › ${row.label}`;if(pct>=Number(budgetRule.dangerPct||100))alerts.push({level:'danger',icon:'🚨',source:'งบประมาณ',msg:`${label} ใช้ ${formatCurrency(spent)} / ${formatCurrency(budget)} · ${pct.toFixed(0)}%`});else if(pct>=Number(budgetRule.warningPct||80))alerts.push({level:'warn',icon:'⚠️',source:'งบประมาณ',msg:`${label} ใกล้เต็มงบ ${formatCurrency(spent)} / ${formatCurrency(budget)} · ${pct.toFixed(0)}%`});});
-  const debtRule=rules.debt||{};if(debtRule.active!==false)activeDebts().forEach(d=>{if(!d.dueDay)return;const days=daysUntilMonthDay(d.dueDay);if(days<=Number(debtRule.daysBefore||7))alerts.push({level:days<=1?'danger':'warn',icon:'💳',source:'หนี้สิน',msg:`${d.creditor} ครบกำหนดใน ${days===0?'วันนี้':days+' วัน'} · ค่างวด ${formatCurrency(d.installment||0)}`});});
-  const recurringRule=rules.recurring||{};if(recurringRule.active!==false)DATA.recurringTemplates.filter(r=>r.active!==false).forEach(r=>{const days=daysUntilMonthDay(r.dueDay);if(days<=Number(recurringRule.daysBefore||3))alerts.push({level:days<=1?'danger':'warn',icon:'🔁',source:'รายการประจำ',msg:`${r.name} ถึงกำหนดใน ${days===0?'วันนี้':days+' วัน'} · ${formatCurrency(r.amount||0)}`});});
-  const savingRule=rules.savings||{};if(savingRule.active!==false)DATA.savings.filter(x=>!x.achieved&&x.dueDateISO).forEach(g=>{const days=daysBetween(todayISO(),g.dueDateISO);if(days>=0&&days<=Number(savingRule.daysBefore||14)){const remain=Math.max(0,Number(g.targetAmount||0)-Number(g.currentAmount||0));alerts.push({level:days<=3?'danger':'warn',icon:'🐷',source:'เงินออม',msg:`${g.name} เหลือ ${days} วันถึงเป้าหมาย · ยังขาด ${formatCurrency(remain)}`});}});
+  if(budgetRule.active!==false) tracked.forEach(row=>{const budget=Number(row.amount||0);if(budget<=0)return;const spent=trackedBudgetSpent(row,list,tracked),pct=spent/budget*100,label=row.level==='parent'?row.parentName:`${row.parentName} › ${row.label}`;if(pct>=Number(budgetRule.dangerPct||100))alerts.push({id:`budget:${ym}:${row.id}:danger`,level:'danger',icon:'🚨',source:'งบประมาณ',msg:`${label} ใช้ ${formatCurrency(spent)} / ${formatCurrency(budget)} · ${pct.toFixed(0)}%`});else if(pct>=Number(budgetRule.warningPct||80))alerts.push({id:`budget:${ym}:${row.id}:warn`,level:'warn',icon:'⚠️',source:'งบประมาณ',msg:`${label} ใกล้เต็มงบ ${formatCurrency(spent)} / ${formatCurrency(budget)} · ${pct.toFixed(0)}%`});});
+  const debtRule=rules.debt||{};if(debtRule.active!==false)activeDebts().forEach(d=>{if(!d.dueDay)return;const days=daysUntilMonthDay(d.dueDay);if(days<=Number(debtRule.daysBefore||7))alerts.push({id:`debt:${d.id}:${ym}`,level:days<=1?'danger':'warn',icon:'💳',source:'หนี้สิน',msg:`${d.creditor} ครบกำหนดใน ${days===0?'วันนี้':days+' วัน'} · ค่างวด ${formatCurrency(d.installment||0)}`});});
+  const recurringRule=rules.recurring||{};if(recurringRule.active!==false)DATA.recurringTemplates.filter(r=>r.active!==false).forEach(r=>{const days=daysUntilMonthDay(r.dueDay);if(days<=Number(recurringRule.daysBefore||3))alerts.push({id:`recurring:${r.id}:${ym}`,level:days<=1?'danger':'warn',icon:'🔁',source:'รายการประจำ',msg:`${r.name} ถึงกำหนดใน ${days===0?'วันนี้':days+' วัน'} · ${formatCurrency(r.amount||0)}`});});
+  const savingRule=rules.savings||{};if(savingRule.active!==false)DATA.savings.filter(x=>!x.achieved&&x.dueDateISO).forEach(g=>{const days=daysBetween(todayISO(),g.dueDateISO);if(days>=0&&days<=Number(savingRule.daysBefore||14)){const remain=Math.max(0,Number(g.targetAmount||0)-Number(g.currentAmount||0));alerts.push({id:`saving:${g.id}:${g.dueDateISO}`,level:days<=3?'danger':'warn',icon:'🐷',source:'เงินออม',msg:`${g.name} เหลือ ${days} วันถึงเป้าหมาย · ยังขาด ${formatCurrency(remain)}`});}});
   return alerts.sort((a,b)=>(a.level==='danger'?0:1)-(b.level==='danger'?0:1));
 }
 function buildBudgetAlerts(ym,list){return buildFinancialAlerts(ym,list);}
@@ -3186,7 +3282,7 @@ function openTrackedBudgetModal(id=''){
     if(!pn|| (lev==='subcategory'&&!cat)){showToast('กรุณาเลือกหมวด');return;}
     const duplicate=rows.some(x=>x.id!==id && x.level===lev && (lev==='parent'?x.parentName===pn:x.categoryId===cat.id));if(duplicate){showToast('หมวดนี้ถูกติดตามอยู่แล้ว');return;}
     const row=editing||{id:uid()};Object.assign(row,{level:lev,parentName:pn,categoryId:lev==='subcategory'?cat.id:null,label:lev==='subcategory'?cat.label:pn,amount});
-    if(!editing)rows.push(row);DATA.budgetTracking[budgetMonth]=rows;DATA.budgetOrder[budgetMonth]=rows.map(x=>x.id);saveData(true);closeModal();renderBudget();showToast('บันทึกงบประมาณแล้ว');
+    if(!editing){rows.push(row);const order=DATA.budgetOrder[budgetMonth]||[];DATA.budgetOrder[budgetMonth]=[...order.filter(x=>rows.some(r=>r.id===x)),row.id];}DATA.budgetTracking[budgetMonth]=rows;saveData(true);closeModal();renderBudget();showToast('บันทึกงบประมาณแล้ว');
   });
 }
 function copyPrevMonthBudget(){
@@ -3571,7 +3667,7 @@ function renderSavings(){
       html.push(`<tr>
         <td data-label="วันที่">${formatDateThai(p.date,'short')}</td>
         <td data-label="เป้าหมาย">${escapeHtml(goal?goal.name:'-')}</td>
-        <td data-label="รายการ">${p.amount>=0?'<span class="badge badge-ok">ฝาก</span>':'<span class="badge badge-orange">ถอน</span>'}</td>
+        <td data-label="รายการ">${p.adjustmentType?'<span class="badge badge-gray">ปรับยอด</span>':(p.amount>=0?'<span class="badge badge-ok">ฝาก</span>':'<span class="badge badge-orange">ถอน</span>')}</td>
         <td data-label="จำนวนเงิน">${formatCurrency(Math.abs(p.amount))}</td>
         <td data-label="ที่มา">${p.sourceTxId?'<span class="badge badge-ok">รายการรับ-จ่าย</span>':'<span class="badge badge-gray">บันทึกเอง</span>'}</td>
         <td data-label="หมายเหตุ">${escapeHtml(p.note||'-')}</td>
@@ -3645,7 +3741,7 @@ function openSavingsGoalModal(id){
     <h3>${editing?'แก้ไขเป้าหมายออม':'เพิ่มเป้าหมายออมใหม่'}</h3>
     <div class="form-row"><label>ชื่อเป้าหมาย</label><input type="text" id="svName" value="${escapeHtml(s.name)}" placeholder="เช่น เงินสำรองฉุกเฉิน, เงินดาวน์รถ"></div>
     <div class="form-grid">
-      <div class="form-row"><label>${editing?'ยอดออมปัจจุบัน (ปรับผ่านฝาก/ถอน)':'ยอดออมตั้งต้น (บาท)'}</label><input type="number" id="svCurrent" value="${s.currentAmount||0}" ${editing?'readonly':''}></div>
+      <div class="form-row"><label>${editing?'ยอดออมปัจจุบัน (คำนวณจากประวัติ)':'ยอดออมตั้งต้น (บาท)'}</label><input type="number" id="svCurrent" value="${s.currentAmount||0}" ${editing?'readonly':''}>${editing?`<div class="sub">ยอดตั้งต้น ${formatCurrency(Number(s.openingAmount||0))}</div><button type="button" class="btn sm" id="btnAdjustOpening">แก้ไขยอดตั้งต้น</button><button type="button" class="btn sm" id="btnAdjustSaving">ปรับยอด</button>`:''}</div>
       <div class="form-row"><label>เป้าหมายรวม (บาท ไม่บังคับ)</label><input type="number" id="svTarget" value="${s.targetAmount??''}" placeholder="เว้นว่างได้ถ้าไม่กำหนด"></div>
     </div>
     <div class="form-row"><label>บัญชีเงินออมที่เชื่อมกับเป้าหมาย</label><select id="svAccount">${activeAccounts().map(a=>`<option value="${a.id}" ${s.accountId===a.id?'selected':''}>${escapeHtml(a.name)}</option>`).join('')}</select></div>
@@ -3660,6 +3756,10 @@ function openSavingsGoalModal(id){
     </div>
   `;
   const overlay = openModal(body);
+  if(editing){
+    overlay.querySelector('#btnAdjustOpening').addEventListener('click',()=>{const raw=prompt('ยอดตั้งต้นใหม่ (บาท)',String(Number(s.openingAmount||0)));if(raw===null)return;const next=Number(raw);if(!Number.isFinite(next)||next<0){showToast('ยอดตั้งต้นไม่ถูกต้อง');return;}const diff=next-Number(s.openingAmount||0);s.openingAmount=next;s.currentAmount=Math.max(0,Number(s.currentAmount||0)+diff);DATA.savingsLogs.push({id:uid(),savingsId:s.id,date:todayISO(),amount:diff,note:'ปรับแก้ยอดตั้งต้น',adjustmentType:'opening_balance',sourceTxId:null});saveData(true);closeModal();renderSavings();showToast('แก้ไขยอดตั้งต้นแล้ว');});
+    overlay.querySelector('#btnAdjustSaving').addEventListener('click',()=>{const raw=prompt('จำนวนเงินที่ต้องการปรับ (+ เพิ่ม / - ลด)', '0');if(raw===null)return;const diff=Number(raw);if(!Number.isFinite(diff)||diff===0){showToast('กรุณากรอกจำนวนเงินที่ต้องการปรับ');return;}if(Number(s.currentAmount||0)+diff<0){showToast('ยอดหลังปรับต้องไม่ติดลบ');return;}const note=prompt('หมายเหตุการปรับยอด','ปรับยอดเงินออม')||'ปรับยอดเงินออม';s.currentAmount=Number(s.currentAmount||0)+diff;DATA.savingsLogs.push({id:uid(),savingsId:s.id,date:todayISO(),amount:diff,note,adjustmentType:'balance_adjustment',sourceTxId:null});saveData(true);closeModal();renderSavings();showToast('ปรับยอดเงินออมแล้ว');});
+  }
   overlay.querySelector('#btnSaveSaving').addEventListener('click', ()=>{
     const name = overlay.querySelector('#svName').value.trim();
     if(!name){ showToast('กรุณากรอกชื่อเป้าหมาย'); return; }
@@ -3668,6 +3768,7 @@ function openSavingsGoalModal(id){
     const record = {
       id: s.id, name,
       currentAmount: parseFloat(overlay.querySelector('#svCurrent').value)||0,
+      openingAmount: editing?Number(s.openingAmount||0):(parseFloat(overlay.querySelector('#svCurrent').value)||0),
       targetAmount: targetRaw===''? null : parseFloat(targetRaw),
       monthlyTarget: monthlyRaw===''? null : parseFloat(monthlyRaw),
       accountId:overlay.querySelector('#svAccount').value,
