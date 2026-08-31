@@ -3253,7 +3253,7 @@ function renderDebts(){
         <td data-label="ค่าธรรมเนียม">${Number(p.fee||0)>0?formatCurrency(p.fee):'-'}</td>
         <td data-label="ที่มา">${p.sourceTxId?'<span class="badge badge-ok">รายการรับ-จ่าย</span>':'<span class="badge badge-gray">บันทึกเอง</span>'}</td>
         <td data-label="หมายเหตุ">${escapeHtml(p.note||'-')}</td>
-        <td data-label="จัดการ"><button class="btn sm" data-editpayment="${p.id}">แก้ไข</button></td>
+        <td data-label="จัดการ"><button class="btn sm" data-editpayment="${p.id}">แก้ไข</button> <button class="btn sm danger" data-delpayment="${p.id}">ลบ</button></td>
       </tr>`);
     });
     html.push(`</tbody></table>`);
@@ -3265,10 +3265,49 @@ function renderDebts(){
   document.querySelectorAll('[data-editdebt]').forEach(b=> b.addEventListener('click', ()=> openDebtModal(b.dataset.editdebt)));
   document.querySelectorAll('[data-pay]').forEach(b=> b.addEventListener('click', ()=> openDebtPaymentModal(b.dataset.pay)));
   document.querySelectorAll('[data-editpayment]').forEach(b=> b.addEventListener('click', ()=> openDebtPaymentModal(null, b.dataset.editpayment)));
+  document.querySelectorAll('[data-delpayment]').forEach(b=> b.addEventListener('click', ()=> confirmDeleteDebtPayment(b.dataset.delpayment)));
   document.querySelectorAll('[data-toggleclose]').forEach(b=> b.addEventListener('click', ()=> toggleDebtClosed(b.dataset.toggleclose)));
 
   drawDebtPageTrendChart('debtChartWrap');
 }
+function confirmDeleteDebtPayment(paymentId){
+  const payment = DATA.debtPayments.find(p=>p.id===paymentId);
+  if(!payment) return;
+  const debt = DATA.debts.find(d=>d.id===payment.debtId);
+  const linkedTx = linkedTransactionForDebtPayment(payment);
+  const generatedTx = linkedTx && linkedTx.sourceType==='debt_payment' && linkedTx.sourceId===payment.id;
+  const balanceEffect = payment.balanceEffectPrincipal!=null
+    ? Number(payment.balanceEffectPrincipal||0)
+    : (payment.newBalance==null && payment.principal!=null ? Number(payment.principal||0) : 0);
+  const details = [
+    `วันที่ ${formatDateThai(payment.date,'short')}`,
+    `ยอดชำระ ${formatCurrency(Number(payment.amount||0))}`,
+    generatedTx ? 'รายการรับ-จ่ายที่ระบบสร้างจากการชำระนี้จะถูกลบด้วย' : (linkedTx ? 'รายการรับ-จ่ายเดิมจะยังอยู่ แต่ระบบจะยกเลิกการเชื่อมกับหนี้' : ''),
+    balanceEffect>0 ? `ระบบจะคืนผลกระทบเงินต้น ${formatCurrency(balanceEffect)} กลับเข้ายอดหนี้คงเหลือ` : 'รายการนี้ไม่มีเงินต้นที่ระบบสามารถย้อนยอดให้อัตโนมัติได้',
+    'การลบไม่สามารถย้อนกลับได้'
+  ].filter(Boolean).join(' · ');
+  openConfirmModal(`ลบประวัติการชำระ${debt?` — ${debt.creditor}`:''}?`, details, ()=>{
+    if(debt && debt.balance!=null && balanceEffect>0){
+      debt.balance = Math.max(0, Number(debt.balance||0) + balanceEffect);
+      if(debt.closed && debt.balance>0) debt.closed = false;
+      debt.updatedAt = todayISO();
+    }
+    if(linkedTx){
+      if(generatedTx){
+        DATA.transactions = DATA.transactions.filter(tx=>tx.id!==linkedTx.id);
+      }else{
+        if(linkedTx.linkedDebtId===payment.debtId) linkedTx.linkedDebtId = null;
+        if(linkedTx.debtId===payment.debtId) linkedTx.debtId = null;
+        linkedTx.updatedAt = new Date().toISOString();
+      }
+    }
+    DATA.debtPayments = DATA.debtPayments.filter(p=>p.id!==paymentId);
+    saveData();
+    renderDebts();
+    showToast('ลบประวัติการชำระหนี้แล้ว');
+  });
+}
+
 function toggleDebtClosed(id){
   const d = DATA.debts.find(x=>x.id===id);
   if(!d) return;
