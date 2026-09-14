@@ -757,6 +757,9 @@ table thead th{background:var(--advanced-table-bg,var(--green-700));color:var(--
 
 /* v0.3.0 Beta latest requirements */
 .dashboard-bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;margin-top:18px}.dashboard-bottom-grid .section-title{margin-top:0}.dashboard-bottom-grid .panel{margin-bottom:0}.manager-actions,.responsive td[data-label="จัดการ"]{white-space:nowrap}.tx-viewbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.tx-viewbar .btn.active{background:var(--green-700);color:#fff}.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));border:1px solid var(--border);border-radius:16px;overflow:auto;background:var(--panel)}.calendar-head{padding:10px;text-align:center;font-weight:800;background:var(--advanced-table-bg,var(--green-700));color:var(--advanced-table-text,#fff)}.calendar-day{min-height:118px;padding:9px;border-top:1px solid var(--border);border-right:1px solid var(--border);background:var(--panel);cursor:pointer}.calendar-day.muted{opacity:.42}.calendar-date{font-weight:800;margin-bottom:7px}.calendar-total{display:flex;justify-content:space-between;gap:8px;padding:3px 6px;border-radius:8px;margin:3px 0;font-size:12px}.calendar-total.income{background:rgba(34,197,94,.12);color:#15803d}.calendar-total.expense{background:rgba(220,38,38,.10);color:#b91c1c}.calendar-total.debt{background:rgba(245,158,11,.13);color:#a16207}.calendar-total.transfer{background:rgba(59,130,246,.11);color:#1d4ed8}.day-summary{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px;margin-bottom:14px}.day-summary .card{padding:12px}.day-list .list-item{cursor:default}@media(max-width:950px){.dashboard-bottom-grid{grid-template-columns:1fr}.calendar-grid{grid-template-columns:repeat(7,minmax(105px,1fr))}.day-summary{grid-template-columns:1fr 1fr}}
+
+/* REQ-05/06: grouped accounts + shared icon picker */
+.account-summary-grid{display:grid;grid-template-columns:minmax(240px,1.6fr) repeat(3,minmax(150px,1fr));gap:12px;margin:14px 0 18px}.account-summary-card{border:1px solid var(--border,#dbe3ea);border-radius:16px;padding:16px;background:var(--card,#fff)}.account-summary-card.total{grid-row:span 2}.account-summary-value{font-size:24px;font-weight:800;margin-top:6px}.account-type-groups{display:grid;gap:14px}.account-type-group{border:1px solid var(--border,#dbe3ea);border-radius:16px;overflow:hidden;background:var(--card,#fff)}.account-type-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 16px;background:rgba(8,114,193,.07);cursor:pointer}.account-type-head h4{margin:0}.account-type-head .sub{margin:2px 0 0}.account-type-body.is-collapsed{display:none}.icon-picker-trigger{display:flex;align-items:center;gap:8px}.icon-picker-trigger input{flex:1}.icon-picker-btn{min-width:110px}.icon-picker-panel{margin-top:8px;border:1px solid var(--border,#dbe3ea);border-radius:14px;padding:10px;background:var(--card,#fff);box-shadow:0 10px 30px rgba(0,0,0,.08)}.icon-picker-search{width:100%;margin-bottom:9px}.icon-picker-grid{display:grid;grid-template-columns:repeat(8,minmax(38px,1fr));gap:6px;max-height:210px;overflow:auto}.icon-choice{border:1px solid var(--border,#dbe3ea);border-radius:10px;background:transparent;font-size:22px;padding:7px;cursor:pointer}.icon-choice:hover,.icon-choice.is-selected{background:rgba(8,114,193,.10);border-color:#0872c1}.icon-picker-section{font-size:12px;font-weight:700;margin:8px 0 5px;color:var(--muted,#667085)}@media(max-width:1050px){.account-summary-grid{grid-template-columns:repeat(2,1fr)}.account-summary-card.total{grid-row:auto;grid-column:1/-1}}
 </style>
 <style>
 .journal-layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,.85fr);gap:18px;align-items:start}
@@ -4843,9 +4846,10 @@ function openMetricCardModal(cardId=null){
   const card=existing?JSON.parse(JSON.stringify(existing)):{id:uid(),label:'',icon:'📊',source:'category',systemKey:'',calc:'sum',categoryIds:[],active:true};
   const categories=(DATA.categoryMaster||[]).filter(x=>x.active!==false);
   const grouped=['expense','income'].map(type=>{const title=type==='expense'?'รายจ่าย':'รายรับ';return `<div style="margin-top:10px"><strong>${title}</strong>${categories.filter(x=>x.type===type).map(x=>`<label class="metric-category-row"><input type="checkbox" name="metricCat" value="${escapeHtml(x.id)}" ${(card.categoryIds||[]).includes(x.id)?'checked':''}> <span>${escapeHtml(x.icon||'🏷️')} ${escapeHtml(x.parentName||'')} → ${escapeHtml(x.subcategory||x.name||x.label)}</span></label>`).join('')}</div>`}).join('');
-  const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>${existing?'แก้ไขการ์ด':'สร้างการ์ดตัวชี้วัด'}</h3><div class="form-grid"><label>ชื่อการ์ด<input id="metricLabel" value="${escapeHtml(card.label)}" placeholder="เช่น ค่าอาหารเฉลี่ย/วัน"></label><label>ไอคอน<input id="metricIcon" value="${escapeHtml(card.icon)}" maxlength="4"></label><label>แหล่งข้อมูล<select id="metricSource"><option value="category" ${card.source==='category'?'selected':''}>หมวดจาก Category Master</option><option value="system" ${card.source==='system'?'selected':''}>ค่าจากระบบ</option></select></label><label id="metricSystemRow">ค่าระบบ<select id="metricSystemKey"><option value="debtPayment">ชำระหนี้</option><option value="totalOut">เงินออกทั้งหมด</option><option value="debtReduced">ยอดหนี้ที่ลดลง</option><option value="income">รายรับทั้งหมด</option><option value="livingExpense">รายจ่ายทั้งหมด</option><option value="net">เงินคงเหลือ</option></select></label><label>วิธีคำนวณ<select id="metricCalc"><option value="sum">ยอดรวม</option><option value="avg_day">เฉลี่ยต่อวัน</option><option value="avg_month">เฉลี่ยต่อเดือน</option><option value="count">จำนวนรายการ</option></select></label></div><div id="metricCategoryBox"><div class="muted" style="margin:10px 0 6px">เลือกได้หลายหมวด</div><div class="metric-category-list">${grouped}</div></div><div class="btn-row" style="margin-top:14px">${existing?'<button class="btn danger" id="btnDeleteMetric">ลบการ์ด</button>':''}<span style="flex:1"></span><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="btnSaveMetric">บันทึกการ์ด</button></div>`);
+  const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>${existing?'แก้ไขการ์ด':'สร้างการ์ดตัวชี้วัด'}</h3><div class="form-grid"><label>ชื่อการ์ด<input id="metricLabel" value="${escapeHtml(card.label)}" placeholder="เช่น ค่าอาหารเฉลี่ย/วัน"></label><label>ไอคอน${iconPickerMarkup('metricIcon',card.icon)}</label><label>แหล่งข้อมูล<select id="metricSource"><option value="category" ${card.source==='category'?'selected':''}>หมวดจาก Category Master</option><option value="system" ${card.source==='system'?'selected':''}>ค่าจากระบบ</option></select></label><label id="metricSystemRow">ค่าระบบ<select id="metricSystemKey"><option value="debtPayment">ชำระหนี้</option><option value="totalOut">เงินออกทั้งหมด</option><option value="debtReduced">ยอดหนี้ที่ลดลง</option><option value="income">รายรับทั้งหมด</option><option value="livingExpense">รายจ่ายทั้งหมด</option><option value="net">เงินคงเหลือ</option></select></label><label>วิธีคำนวณ<select id="metricCalc"><option value="sum">ยอดรวม</option><option value="avg_day">เฉลี่ยต่อวัน</option><option value="avg_month">เฉลี่ยต่อเดือน</option><option value="count">จำนวนรายการ</option></select></label></div><div id="metricCategoryBox"><div class="muted" style="margin:10px 0 6px">เลือกได้หลายหมวด</div><div class="metric-category-list">${grouped}</div></div><div class="btn-row" style="margin-top:14px">${existing?'<button class="btn danger" id="btnDeleteMetric">ลบการ์ด</button>':''}<span style="flex:1"></span><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="btnSaveMetric">บันทึกการ์ด</button></div>`);
   overlay.querySelector('#metricSystemKey').value=card.systemKey||'debtPayment';overlay.querySelector('#metricCalc').value=card.calc||'sum';
   const refresh=()=>{const system=overlay.querySelector('#metricSource').value==='system';overlay.querySelector('#metricSystemRow').style.display=system?'block':'none';overlay.querySelector('#metricCategoryBox').style.display=system?'none':'block';};refresh();overlay.querySelector('#metricSource').addEventListener('change',refresh);
+  bindIconPickers(overlay);
   overlay.querySelector('#btnSaveMetric').addEventListener('click',()=>{const source=overlay.querySelector('#metricSource').value;const label=overlay.querySelector('#metricLabel').value.trim();const categoryIds=[...overlay.querySelectorAll('input[name="metricCat"]:checked')].map(x=>x.value);if(!label)return showToast('กรุณาระบุชื่อการ์ด');if(source==='category'&&!categoryIds.length)return showToast('กรุณาเลือกอย่างน้อย 1 หมวด');const saved={...card,label,icon:overlay.querySelector('#metricIcon').value.trim()||'📊',source,systemKey:source==='system'?overlay.querySelector('#metricSystemKey').value:'',calc:overlay.querySelector('#metricCalc').value,categoryIds:source==='category'?categoryIds:[],active:true};const arr=DATA.reportMetricCards||(DATA.reportMetricCards=[]);const idx=arr.findIndex(x=>x.id===saved.id);if(idx>=0)arr[idx]=saved;else arr.push(saved);saveData(true);closeModal();renderReports();showToast('บันทึกการ์ดแล้ว');});
   overlay.querySelector('#btnDeleteMetric')?.addEventListener('click',()=>{DATA.reportMetricCards=(DATA.reportMetricCards||[]).filter(x=>x.id!==card.id);saveData(true);closeModal();renderReports();showToast('ลบการ์ดแล้ว');});
 }
@@ -5068,6 +5072,22 @@ function replaceCategoryLabelEverywhere(type,oldLabel,newLabel,master){
     DATA.foodGroupCategories=(DATA.foodGroupCategories||[]).map(x=>x===oldLabel?newLabel:x);
   }
 }
+const FINNOTE_ICON_LIBRARY=[
+  ['การเงิน','💰','💵','💳','🏦','🐷','🪙','💸','🧾','📈','📉','💹','👜','👛'],
+  ['อาหาร','🍚','🍜','🍲','🍱','🥗','🍞','☕','🥤','🍰','🍎','🛒'],
+  ['เดินทาง','🚗','🏍️','🚌','🚆','✈️','⛽','🅿️','🚕','🛵'],
+  ['บ้านและบิล','🏠','🏡','💡','💧','📱','🌐','🧹','🛠️','🔧','🧺'],
+  ['ชีวิต','❤️','💊','🏥','🎓','📚','🎁','🎮','🎬','🐶','🐱','👕','✂️'],
+  ['งานและอื่น ๆ','💼','🧑‍💻','📦','📌','📅','🔔','⭐','🎯','🏷️','📝','📊','⚙️']
+];
+function iconPickerMarkup(inputId,current=''){
+  const buttons=FINNOTE_ICON_LIBRARY.map(([section,...icons])=>`<div class="icon-picker-section">${section}</div><div class="icon-picker-grid">${icons.map(icon=>`<button type="button" class="icon-choice ${icon===current?'is-selected':''}" data-icon-choice="${icon}" title="${section}">${icon}</button>`).join('')}</div>`).join('');
+  return `<div class="icon-picker-trigger"><input id="${inputId}" value="${escapeHtml(current||'')}" maxlength="12" placeholder="เลือกหรือพิมพ์ Emoji"><button type="button" class="btn icon-picker-btn" data-icon-picker="${inputId}">🎨 เลือกไอคอน</button></div><div class="icon-picker-panel" data-icon-panel="${inputId}" style="display:none"><input class="icon-picker-search" data-icon-search="${inputId}" placeholder="ค้นหา เช่น การเงิน อาหาร รถ บ้าน"><div data-icon-results="${inputId}">${buttons}</div></div>`;
+}
+function bindIconPickers(root=document){
+  root.querySelectorAll('[data-icon-picker]').forEach(btn=>btn.addEventListener('click',()=>{const id=btn.dataset.iconPicker,panel=root.querySelector(`[data-icon-panel="${id}"]`);if(panel)panel.style.display=panel.style.display==='none'?'block':'none';}));
+  root.querySelectorAll('[data-icon-panel]').forEach(panel=>{const id=panel.dataset.iconPanel,input=root.querySelector('#'+id),search=panel.querySelector(`[data-icon-search="${id}"]`);panel.querySelectorAll('[data-icon-choice]').forEach(b=>b.addEventListener('click',()=>{if(input)input.value=b.dataset.iconChoice;panel.querySelectorAll('[data-icon-choice]').forEach(x=>x.classList.toggle('is-selected',x===b));panel.style.display='none';}));if(search)search.addEventListener('input',()=>{const q=search.value.trim().toLowerCase();panel.querySelectorAll('.icon-picker-grid').forEach(grid=>{const section=grid.previousElementSibling?.textContent?.toLowerCase()||'';grid.querySelectorAll('[data-icon-choice]').forEach(b=>b.style.display=(!q||section.includes(q)||b.title.toLowerCase().includes(q))?'':'none');});});});
+}
 function openCategoryModal(type, oldName=''){
   const editing=Boolean(oldName);
   const current=editing?normalizeCategoryMasterItem(categoryMasterByLabel(type,oldName)||{type,label:oldName,name:oldName,group:'🏷️ หมวดจากเวอร์ชันเดิม'}):normalizeCategoryMasterItem({id:nextCustomCategoryId(type),type,icon:type==='income'?'💰':'🧾',parentName:'หมวดกำหนดเอง',subcategory:'',name:'',note:'',color:categoryColorFor(type,nextCustomCategoryId(type)),standard:false,active:true,label:''});
@@ -5078,7 +5098,7 @@ function openCategoryModal(type, oldName=''){
     <div class="form-grid">
       <div class="form-row"><label>ประเภท</label><select id="categoryTypeInput" ${editing?'disabled':''}><option value="income" ${type==='income'?'selected':''}>รายรับ</option><option value="expense" ${type==='expense'?'selected':''}>รายจ่าย</option></select></div>
       <div class="form-row"><label>รหัสหมวด (Stable ID)</label><input id="categoryCodeInput" value="${escapeHtml(current.id)}" ${editing?'readonly':''} maxlength="30"><small>${editing?'รหัสเดิมจะไม่เปลี่ยน เพื่อรักษาความเชื่อมโยงกับรายการย้อนหลัง':'ระบบสร้างให้แล้ว สามารถแก้ก่อนบันทึกครั้งแรกได้'}</small></div>
-      <div class="form-row"><label>ไอคอน / Emoji</label><input id="categoryIconInput" value="${escapeHtml(current.icon)}" maxlength="12" placeholder="เช่น 🚗"></div>
+      <div class="form-row"><label>ไอคอน / Emoji</label>${iconPickerMarkup('categoryIconInput',current.icon)}</div>
       <div class="form-row"><label>สีประจำหมวด</label><input id="categoryColorInput" type="color" value="${escapeHtml(current.color||'#0872C1')}"></div>
       <div class="form-row"><label>หมวดหลัก</label><select id="categoryParentInput">${parentCategoryOptions(type,current.parentName)}</select><small>เลือกจากหมวดหลักที่มีอยู่ เพื่อลดชื่อซ้ำ</small></div>
       <div class="form-row"><label>หมวดย่อย</label><input id="categorySubInput" maxlength="80" value="${escapeHtml(current.subcategory||current.name||'')}" placeholder="เช่น น้ำมัน"></div>
@@ -5087,6 +5107,7 @@ function openCategoryModal(type, oldName=''){
     <label style="display:flex;align-items:center;gap:8px;margin:8px 0 16px"><input id="categoryActiveInput" type="checkbox" ${current.active!==false?'checked':''}> ใช้งานหมวดนี้</label>
     <div class="btn-row"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="btnSaveCategory">${editing?'บันทึกการแก้ไข':'เพิ่มหมวด'}</button></div>`;
   const overlay=openModal(body);
+  bindIconPickers(overlay);
   overlay.querySelector('#categoryParentInput')?.addEventListener('change',e=>{
     if(e.target.value==='__CREATE_PARENT__'){
       closeModal();
@@ -5122,10 +5143,11 @@ function openCategoryModal(type, oldName=''){
 function openCreateParentCategory(type,onDone){
   const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>สร้างหมวดหลักใหม่</h3>
     <div class="form-row"><label>ประเภท</label><div>${type==='income'?'รายรับ':'รายจ่าย'}</div></div>
-    <div class="form-row"><label>ไอคอน</label><input id="newParentIcon" value="${type==='income'?'💰':'🧾'}" maxlength="12"></div>
+    <div class="form-row"><label>ไอคอน</label>${iconPickerMarkup('newParentIcon',type==='income'?'💰':'🧾')}</div>
     <div class="form-row"><label>ชื่อหมวดหลัก</label><input id="newParentName" maxlength="80" placeholder="เช่น การเดินทาง"></div>
     <div class="form-row"><label>สี</label><input id="newParentColor" type="color" value="#0872C1"></div>
     <div class="btn-row"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="saveNewParent">สร้างหมวดหลัก</button></div>`);
+  bindIconPickers(overlay);
   overlay.querySelector('#saveNewParent').addEventListener('click',()=>{
     const name=overlay.querySelector('#newParentName').value.trim();
     if(!name){showToast('กรุณาระบุชื่อหมวดหลัก');return;}
@@ -5146,7 +5168,8 @@ function openParentCategoryManager(){
 }
 function openEditParentCategory(type,oldParent){
   const members=(DATA.categoryMaster||[]).filter(item=>item.type===type&&(item.parentName||'หมวดกำหนดเอง')===oldParent); if(!members.length)return;
-  const sample=members[0]; const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>แก้ไขหมวดหลัก</h3><div class="form-row"><label>ไอคอน</label><input id="parentIcon" value="${escapeHtml(sample.icon||'🏷️')}" maxlength="12"></div><div class="form-row"><label>ชื่อหมวดหลัก</label><input id="parentName" value="${escapeHtml(oldParent)}" maxlength="80"></div><div class="form-row"><label>สี</label><input id="parentColor" type="color" value="${escapeHtml(sample.color||'#0872C1')}"></div><div class="btn-row"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="saveParent">บันทึก</button></div>`);
+  const sample=members[0]; const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>แก้ไขหมวดหลัก</h3><div class="form-row"><label>ไอคอน</label>${iconPickerMarkup('parentIcon',sample.icon||'🏷️')}</div><div class="form-row"><label>ชื่อหมวดหลัก</label><input id="parentName" value="${escapeHtml(oldParent)}" maxlength="80"></div><div class="form-row"><label>สี</label><input id="parentColor" type="color" value="${escapeHtml(sample.color||'#0872C1')}"></div><div class="btn-row"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="saveParent">บันทึก</button></div>`);
+  bindIconPickers(overlay);
   overlay.querySelector('#saveParent').addEventListener('click',()=>{
     const icon=overlay.querySelector('#parentIcon').value.trim()||'🏷️',parentName=overlay.querySelector('#parentName').value.trim(),color=overlay.querySelector('#parentColor').value;if(!parentName){showToast('กรุณากรอกชื่อหมวดหลัก');return;}
     members.forEach(master=>{const oldLabel=master.label;master.icon=icon;master.parentName=parentName;master.group=`${icon} ${parentName}`;master.color=color;master.label=buildCategoryLabel(master);replaceCategoryLabelEverywhere(type,oldLabel,master.label,master);});
@@ -5371,16 +5394,28 @@ function renderRecurring(){
     </div>`;
   bindRecurringPage();
 }
+function accountTypeDefinitions(){return [
+  ['bank','บัญชีธนาคาร'],['cash','เงินสด'],['savings','บัญชีเงินออม'],['credit_card','บัตรเครดิต'],['e_wallet','กระเป๋าเงินอิเล็กทรอนิกส์'],['investment','การลงทุน'],['other','อื่น ๆ']
+];}
+function includedAccountBalance(account){return account.includeInNetWorth!==false?accountBalance(account.id):0;}
+function renderAccountSummary(){
+  const included=DATA.accounts.filter(a=>a.includeInNetWorth!==false);
+  const total=included.reduce((sum,a)=>sum+accountBalance(a.id),0);
+  const cards=accountTypeDefinitions().map(([type,label])=>{const rows=included.filter(a=>a.type===type);const amount=rows.reduce((sum,a)=>sum+accountBalance(a.id),0);return `<div class="account-summary-card"><div>${accountTypeIcon(type)} ${escapeHtml(label)}</div><div class="account-summary-value" style="font-size:18px">${formatCurrency(amount)}</div><div class="sub">${rows.length} บัญชีที่รวมยอด</div></div>`;}).join('');
+  return `<div class="account-summary-grid"><div class="account-summary-card total"><div class="sub">ยอดรวมทุกบัญชีที่กำหนดให้ “รวม”</div><div class="account-summary-value">${formatCurrency(total)}</div><div class="sub">จาก ${included.length} บัญชี</div></div>${cards}</div>`;
+}
+function renderAccountGroup(type,label){
+  const rows=DATA.accounts.filter(a=>a.type===type);
+  if(!rows.length)return '';
+  const amount=rows.filter(a=>a.includeInNetWorth!==false).reduce((sum,a)=>sum+accountBalance(a.id),0);
+  const collapsed=(DATA.settings?.collapsedAccountTypes||[]).includes(type);
+  return `<section class="account-type-group"><div class="account-type-head" data-account-group="${type}"><div><h4>${accountTypeIcon(type)} ${escapeHtml(label)}</h4><div class="sub">${rows.length} บัญชี</div></div><strong>รวม ${formatCurrency(amount)} ${collapsed?'▾':'▴'}</strong></div><div class="account-type-body ${collapsed?'is-collapsed':''}"><div class="manager-table-wrap"><table class="manager-table"><thead><tr><th>บัญชี</th><th class="num">ยอดตั้งต้น</th><th class="num">ยอดคงเหลือ</th><th>สถานะ</th><th>สินทรัพย์สุทธิ</th><th class="num">เชื่อมโยง</th><th style="text-align:right">จัดการ</th></tr></thead><tbody>${renderAccountTableRows(rows)}</tbody></table></div></div></section>`;
+}
 function renderAccounts(){
-  document.getElementById('content').innerHTML=`
-    <div class="panel">
-      <div class="settings-section-head"><div><h3>จัดการบัญชี</h3><p class="sub">ดูยอดและจัดการบัญชีทั้งหมดในตารางเดียว เพิ่ม แก้ไข เปิด–ปิด หรือลบได้จากด้านขวา</p></div><button type="button" class="btn primary" id="btnAddAccount">＋ เพิ่มบัญชี</button></div>
-      <div class="manager-table-wrap"><table class="manager-table"><thead><tr>
-        <th>บัญชี</th><th>ประเภท</th><th class="num">ยอดตั้งต้น</th><th class="num">ยอดคงเหลือ</th><th>สถานะ</th><th>สินทรัพย์สุทธิ</th><th class="num">เชื่อมโยง</th><th style="text-align:right">จัดการ</th>
-      </tr></thead><tbody>${renderAccountTableRows()}</tbody></table></div>
-      <p class="sub" style="margin-top:12px;">บัญชีที่มีรายการย้อนหลังเชื่อมอยู่จะไม่สามารถลบได้ แต่สามารถปิดใช้งานเพื่อไม่ให้แสดงในตัวเลือกของรายการใหม่</p>
-    </div>`;
+  const groups=accountTypeDefinitions().map(([type,label])=>renderAccountGroup(type,label)).join('');
+  document.getElementById('content').innerHTML=`<div class="panel"><div class="settings-section-head"><div><h3>จัดการบัญชี</h3><p class="sub">จัดกลุ่มตามประเภทบัญชีที่มีอยู่ใน FinNote พร้อมยอดรวมของบัญชีที่กำหนดให้รวม</p></div><button type="button" class="btn primary" id="btnAddAccount">＋ เพิ่มบัญชี</button></div>${renderAccountSummary()}<div class="account-type-groups">${groups||'<div class="empty-manager">ยังไม่มีบัญชี</div>'}</div><p class="sub" style="margin-top:12px;">หมายเหตุ: บัญชีที่ตั้งค่า “ไม่รวม” จะไม่ถูกนำมาคำนวณยอดรวม แต่ยังแสดงอยู่ในกลุ่มตามปกติ</p></div>`;
   bindAccountPage();
+  document.querySelectorAll('[data-account-group]').forEach(head=>head.addEventListener('click',()=>{DATA.settings=DATA.settings||{};const arr=new Set(DATA.settings.collapsedAccountTypes||[]);const type=head.dataset.accountGroup;arr.has(type)?arr.delete(type):arr.add(type);DATA.settings.collapsedAccountTypes=[...arr];saveData(true);renderAccounts();}));
 }
 function accountTypeLabel(type){
   return {bank:'บัญชีธนาคาร',cash:'เงินสด',savings:'บัญชีเงินออม',credit_card:'บัตรเครดิต',e_wallet:'กระเป๋าเงินอิเล็กทรอนิกส์',investment:'การลงทุน',other:'อื่น ๆ'}[type]||'อื่น ๆ';
@@ -5415,34 +5450,20 @@ function renderAccountRows(){
     </div>`).join('') || '<div class="empty-manager">ยังไม่มีบัญชี กด “เพิ่มบัญชี” เพื่อเริ่มต้น</div>';
 }
 
-function renderAccountTableRows(){
-  if(!DATA.accounts.length) return `<tr><td colspan="8"><div class="empty-manager">ยังไม่มีบัญชี กด “เพิ่มบัญชี” เพื่อเริ่มต้น</div></td></tr>`;
-  return DATA.accounts.map(account=>`
-    <tr class="${account.active===false?'is-disabled':''}">
-      <td class="name-cell"><strong>${accountTypeIcon(account.type)} ${escapeHtml(account.name)}</strong>${account.note?`<div class="note-cell">${escapeHtml(account.note)}</div>`:''}</td>
-      <td>${escapeHtml(accountTypeLabel(account.type))}</td>
-      <td class="num">${formatCurrency(account.openingBalance)}</td>
-      <td class="num"><strong>${formatCurrency(accountBalance(account.id))}</strong></td>
-      <td><span class="badge ${account.active!==false?'badge-ok':'badge-gray'}">${account.active!==false?'ใช้งาน':'ปิดใช้งาน'}</span></td>
-      <td>${account.includeInNetWorth!==false?'<span class="badge badge-warn">รวม</span>':'<span class="badge badge-gray">ไม่รวม</span>'}</td>
-      <td class="num">${accountUsageCount(account.id)} รายการ</td>
-      <td><div class="manager-actions">
-        <button type="button" class="btn sm" data-toggle-account="${account.id}">${account.active!==false?'⏸️ ปิด':'▶️ เปิด'}</button>
-        <button type="button" class="btn sm" data-edit-account="${account.id}">✏️ แก้ไข</button>
-        <button type="button" class="btn sm danger" data-delete-account="${account.id}">🗑️ ลบ</button>
-      </div></td>
-    </tr>`).join('');
+function renderAccountTableRows(accounts=DATA.accounts){
+  if(!accounts.length) return `<tr><td colspan="7"><div class="empty-manager">ยังไม่มีบัญชี</div></td></tr>`;
+  return accounts.map(account=>`<tr class="${account.active===false?'is-disabled':''}"><td class="name-cell"><strong>${escapeHtml(account.icon||accountTypeIcon(account.type))} ${escapeHtml(account.name)}</strong>${account.note?`<div class="note-cell">${escapeHtml(account.note)}</div>`:''}</td><td class="num">${formatCurrency(account.openingBalance)}</td><td class="num"><strong>${formatCurrency(accountBalance(account.id))}</strong></td><td><span class="badge ${account.active!==false?'badge-ok':'badge-gray'}">${account.active!==false?'ใช้งาน':'ปิดใช้งาน'}</span></td><td>${account.includeInNetWorth!==false?'<span class="badge badge-warn">รวม</span>':'<span class="badge badge-gray">ไม่รวม</span>'}</td><td class="num">${accountUsageCount(account.id)} รายการ</td><td><div class="manager-actions"><button type="button" class="btn sm" data-toggle-account="${account.id}">${account.active!==false?'⏸️ ปิด':'▶️ เปิด'}</button><button type="button" class="btn sm" data-edit-account="${account.id}">✏️ แก้ไข</button><button type="button" class="btn sm danger" data-delete-account="${account.id}">🗑️ ลบ</button></div></td></tr>`).join('');
 }
 
 function openAccountModal(id){
   const editing=DATA.accounts.find(account=>account.id===id);
-  const account=editing||{id:uid(),name:'',type:'bank',openingBalance:0,includeInNetWorth:true,active:true,note:''};
+  const account=editing||{id:uid(),name:'',type:'bank',icon:'🏦',openingBalance:0,includeInNetWorth:true,active:true,note:''};
   const body=`
     <button class="modal-close"  data-close>✕</button>
     <h3>${editing?'แก้ไขข้อมูลบัญชี':'เพิ่มบัญชีใหม่'}</h3>
     <p class="muted">กำหนดข้อมูลบัญชีที่ใช้รับเงิน จ่ายเงิน หรือโอนเงินภายใน FinNote</p>
     <div class="form-grid">
-      <div class="form-row"><label>ชื่อบัญชี</label><input type="text" id="accName" maxlength="100" value="${escapeHtml(account.name)}" placeholder="เช่น บัญชีเงินเดือน"></div>
+      <div class="form-row"><label>ชื่อบัญชี</label><input type="text" id="accName" maxlength="100" value="${escapeHtml(account.name)}" placeholder="เช่น บัญชีเงินเดือน"></div><div class="form-row"><label>ไอคอนบัญชี</label>${iconPickerMarkup('accIcon',account.icon||accountTypeIcon(account.type))}</div>
       <div class="form-row"><label>ประเภทบัญชี</label><select id="accType">
         ${[
           ['bank','บัญชีธนาคาร'],['cash','เงินสด'],['savings','บัญชีเงินออม'],
@@ -5458,6 +5479,7 @@ function openAccountModal(id){
     ${editing?'<div class="creator-notice-foot">การแก้ไขยอดตั้งต้นจะทำให้ยอดคงเหลือปัจจุบันของบัญชีนี้เปลี่ยนตาม</div>':''}
     <div class="btn-row"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="btnSaveAccount">${editing?'บันทึกการแก้ไข':'เพิ่มบัญชี'}</button></div>`;
   const overlay=openModal(body);
+  bindIconPickers(overlay);
   overlay.querySelector('#btnSaveAccount').addEventListener('click',()=>{
     const name=overlay.querySelector('#accName').value.trim();
     if(!name){ showToast('กรุณากรอกชื่อบัญชี'); return; }
@@ -5465,6 +5487,7 @@ function openAccountModal(id){
     Object.assign(account,{
       name,
       type:overlay.querySelector('#accType').value,
+      icon:overlay.querySelector('#accIcon').value.trim()||accountTypeIcon(overlay.querySelector('#accType').value),
       openingBalance:Number(overlay.querySelector('#accOpeningBalance').value||0),
       active:overlay.querySelector('#accActive').value==='true',
       includeInNetWorth:overlay.querySelector('#accNetWorth').value==='true',
