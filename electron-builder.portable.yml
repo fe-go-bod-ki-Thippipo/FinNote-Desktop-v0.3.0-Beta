@@ -1,5 +1,17 @@
 appId: com.finnote.desktop.portable
 productName: FinNote Desktop
+# --config ไฟล์นี้ทำให้ electron-builder ไม่อ่านส่วน "build" ใน package.json
+# จึงต้องระบุรายการไฟล์และ asar ให้ตรงกับ Setup มิฉะนั้นจะแพ็กทั้งโฟลเดอร์โปรเจกต์ (รวม dist/ ของ Setup)
+asar: true
+files:
+  - Index.html
+  - electron/**/*
+  - assets/**/*
+  - node_modules/sql.js/dist/sql-wasm.js
+  - node_modules/sql.js/dist/sql-wasm.wasm
+  - package.json
+  - LICENSE
+  - build-info.json
 win:
   target:
     - target: portable
@@ -10,3 +22,4 @@ win:
   icon: build/icon.ico
 directories:
   output: dist-portable
+  buildResources: build
