@@ -67,6 +67,20 @@ for (const file of pkg.build.files) {
 if (!/^asar:\s*true$/m.test(portableConfig)) throw new Error('Portable build ต้องเปิด asar');
 if (!pkg.build.files.includes('build-info.json')) throw new Error('package.json build.files ต้องมี build-info.json');
 
+// Regression guards F-M1: production packaging must refresh beta metadata before electron-builder.
+for (const scriptName of ['dist:win', 'dist:portable']) {
+  const script = String(pkg.scripts?.[scriptName] || '');
+  if (!/^node scripts\/write-build-info\.js --channel beta && electron-builder\b/.test(script)) {
+    throw new Error(`${scriptName} ต้องสร้าง beta build metadata ก่อนแพ็กโปรแกรม (F-M1)`);
+  }
+}
+// Regression guard F-L1: UAT/dev window title must survive renderer document.title updates.
+const titleGuard = /if\s*\(BUILD\s*&&\s*!BUILD\.production\)\s*\{\s*mainWindow\.on\(['"]page-title-updated['"],\s*event\s*=>\s*event\.preventDefault\(\)\);\s*\}/;
+if (!titleGuard.test(main)) throw new Error('ไม่มีตัวป้องกันชื่อหน้าต่าง UAT/dev (F-L1)');
+if (main.indexOf("mainWindow.on('page-title-updated'") > main.indexOf('mainWindow.loadFile(')) {
+  throw new Error('ต้องติดตั้ง page-title-updated listener ก่อน loadFile (F-L1)');
+}
+
 // Main process ต้องแยก userData ตาม channel และกันหลาย instance เขียนฐานเดียวกัน
 for (const marker of ["require('./channel')", "app.setPath('userData'", 'requestSingleInstanceLock', 'legacyMigrationAllowed']) {
   if (!main.includes(marker)) throw new Error(`main.js ไม่มี isolation marker: ${marker}`);
