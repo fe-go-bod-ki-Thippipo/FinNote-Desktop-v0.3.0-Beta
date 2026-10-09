@@ -1,37 +1,122 @@
 name: Build Windows Release
 
+# วิธีใช้ (UAT จาก Feature Branch):
+#   Actions → Build Windows Release → Run workflow
+#   → Use workflow from: <feature branch> → channel: uat → target: portable → Run
+# Build นี้ไม่สร้าง GitHub Release/tag (ใช้ --publish never และสิทธิ์อ่านอย่างเดียว)
+
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: 'uat = ทดสอบตรวจรับ (แยกข้อมูลจากโปรแกรมจริง) · beta = รุ่นใช้งาน (เฉพาะ main/tag)'
+        type: choice
+        options: [uat, beta]
+        default: uat
+      target:
+        description: 'ชนิดไฟล์ที่ต้องการ (portable ใช้พื้นที่ Artifact น้อยที่สุด)'
+        type: choice
+        options: [portable, setup, both]
+        default: portable
+      retention_days:
+        description: 'จำนวนวันเก็บ Artifact'
+        type: choice
+        options: ['3', '5', '7', '14', '30']
+        default: '5'
   push:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: build-windows-${{ github.ref }}-${{ inputs.channel || 'beta' }}
+  cancel-in-progress: true
+
 jobs:
   build-windows:
     runs-on: windows-latest
-    permissions:
-      contents: read
+    timeout-minutes: 45
+    env:
+      CHANNEL: ${{ inputs.channel || 'beta' }}
+      TARGET: ${{ inputs.target || 'both' }}
+      RETENTION_DAYS: ${{ inputs.retention_days || '30' }}
+    defaults:
+      run:
+        shell: bash
     steps:
+      - name: Guard — beta builds only from main or a v* tag
+        if: env.CHANNEL == 'beta' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "::error::channel beta ต้อง Build จาก main หรือ tag v* เท่านั้น (ref ปัจจุบัน: $GITHUB_REF) ใช้ channel uat สำหรับ Feature Branch"
+          exit 1
+
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
+
       - name: Install dependencies
         run: npm ci
-      - name: Validate source
+
+      - name: Validate source (syntax, version, unit tests)
         run: npm test
-      - name: Build Setup
-        run: npm run dist:win -- --publish never
-      - name: Build Portable
-        run: npm run dist:portable -- --publish never
-      - name: Upload Setup artifact
+
+      - name: Write build-info.json (version, channel, commit)
+        run: node scripts/write-build-info.js --channel "$CHANNEL"
+
+      - name: Build UAT
+        if: env.CHANNEL == 'uat'
+        run: |
+          if [ "$TARGET" = "portable" ] || [ "$TARGET" = "both" ]; then npm run dist:uat:portable -- --publish never; fi
+          if [ "$TARGET" = "setup" ] || [ "$TARGET" = "both" ]; then npm run dist:uat:setup -- --publish never; fi
+
+      - name: Build Beta
+        if: env.CHANNEL == 'beta'
+        run: |
+          if [ "$TARGET" = "setup" ] || [ "$TARGET" = "both" ]; then npm run dist:win -- --publish never; fi
+          if [ "$TARGET" = "portable" ] || [ "$TARGET" = "both" ]; then npm run dist:portable -- --publish never; fi
+
+      - name: Collect files and checksums
+        id: collect
+        run: |
+          mkdir -p out
+          find dist dist-portable dist-uat -maxdepth 1 -type f -name 'FinNote*.exe' -exec cp {} out/ \; 2>/dev/null || true
+          count=$(ls out/*.exe 2>/dev/null | wc -l)
+          if [ "$count" -eq 0 ]; then echo "::error::ไม่พบไฟล์ .exe หลัง Build"; exit 1; fi
+          cp build-info.json out/
+          (cd out && sha256sum *.exe > SHA256SUMS.txt)
+          version=$(node -p "require('./build-info.json').version")
+          short=$(node -p "require('./build-info.json').shortCommit")
+          display=$(node -p "require('./build-info.json').displayVersion")
+          echo "name=FinNote-${CHANNEL}-${version}-${short}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### FinNote ${CHANNEL^^} build"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Version | \`${display}\` |"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| Ref | \`${GITHUB_REF_NAME}\` |"
+            echo "| Retention | ${RETENTION_DAYS} วัน |"
+            echo ""
+            echo "SHA-256:"
+            echo '```'
+            cat out/SHA256SUMS.txt
+            echo '```'
+            echo "ตรวจว่า Commit ในโปรแกรม (Sidebar/แถบด้านบน) ตรงกับ \`${short}\` ก่อนเริ่มตรวจรับ"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FinNote-Desktop-v0.3.0-Beta-Setup
-          path: dist/FinNote-Desktop-v0.3.0-Beta-Setup.exe
-      - name: Upload Portable artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FinNote-Desktop-v0.3.0-Beta-Portable
-          path: dist-portable/FinNote-Desktop-v0.3.0-Beta-Portable.exe
+          name: ${{ steps.collect.outputs.name }}
+          path: out/
+          retention-days: ${{ env.RETENTION_DAYS }}
+          compression-level: 0
+          if-no-files-found: error
