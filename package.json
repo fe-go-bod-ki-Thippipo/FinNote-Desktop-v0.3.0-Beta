@@ -7,10 +7,12 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "test": "node tests/validate-desktop.js",
+    "test": "node tests/validate-desktop.js && node --test \"tests/unit/**/*.test.js\"",
     "dist:win": "electron-builder --win nsis --x64",
     "pack": "electron-builder --dir",
-    "dist:portable": "electron-builder --win portable --x64 --config electron-builder.portable.yml"
+    "dist:portable": "electron-builder --win portable --x64 --config electron-builder.portable.yml",
+    "dist:uat:portable": "node scripts/write-build-info.js --channel uat && electron-builder --win portable --x64 --config electron-builder.uat.yml",
+    "dist:uat:setup": "node scripts/write-build-info.js --channel uat && electron-builder --win nsis --x64 --config electron-builder.uat.yml"
   },
   "dependencies": {
     "sql.js": "^1.13.0"
@@ -30,7 +32,8 @@
       "node_modules/sql.js/dist/sql-wasm.js",
       "node_modules/sql.js/dist/sql-wasm.wasm",
       "package.json",
-      "LICENSE"
+      "LICENSE",
+      "build-info.json"
     ],
     "directories": {
       "output": "dist",

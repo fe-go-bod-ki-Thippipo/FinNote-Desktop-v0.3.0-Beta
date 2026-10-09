@@ -10,6 +10,37 @@ let mainWindow;
 let unlockedMasterKey = null;
 let SQLRuntime = null;
 
+// ---- Build channel & data isolation (ต้องทำก่อนเรียก app.getPath('userData') ครั้งแรก) ----
+const buildChannel = require('./channel');
+let BUILD = null;
+let buildSetupError = null;
+try {
+  BUILD = buildChannel.describeBuild({
+    appRoot: path.join(__dirname, '..'),
+    isPackaged: app.isPackaged,
+    packageVersion: app.getVersion(),
+    appDataDir: app.getPath('appData'),
+    env: process.env
+  });
+  if (BUILD.userDataOverride) {
+    fs.mkdirSync(BUILD.userDataOverride, { recursive: true });
+    app.setPath('userData', BUILD.userDataOverride);
+  }
+} catch (error) {
+  buildSetupError = error;
+}
+// หนึ่ง instance ต่อโฟลเดอร์ข้อมูล: ป้องกันสองหน้าต่างเขียนทับ finnote.sqlite3 ไฟล์เดียวกัน
+const isPrimaryInstance = buildSetupError ? true : app.requestSingleInstanceLock();
+if (!isPrimaryInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
+}
+
 const SECURITY_VERSION = 1;
 const ENCRYPTION_FORMAT_VERSION = 1;
 const MIGRATION_VERSION = 3;
@@ -111,6 +142,8 @@ function summariesMatch(a, b) {
 }
 
 function legacyDatabasePath() {
+  // UAT/dev ห้ามอ่านหรือย้ายฐานข้อมูล FinNote จริงจากเวอร์ชันเดิม
+  if (!BUILD || !BUILD.legacyMigrationAllowed) return null;
   const candidate = path.join(app.getPath('appData'), 'finnote-desktop', 'finnote.sqlite3');
   if (databasePath && path.resolve(candidate) === path.resolve(databasePath)) return null;
   return candidate;
@@ -425,6 +458,16 @@ function registerIpc() {
     const meta = safeAppMeta();
     return {
       appVersion: app.getVersion(),
+      build: BUILD ? {
+        channel: BUILD.channel,
+        production: BUILD.production,
+        displayVersion: BUILD.displayVersion,
+        commit: BUILD.commit,
+        shortCommit: BUILD.shortCommit,
+        runNumber: BUILD.runNumber,
+        builtAt: BUILD.builtAt,
+        isolatedData: Boolean(BUILD.userDataOverride)
+      } : null,
       databasePath,
       logPath: path.join(app.getPath('userData'), LOG_FILE_NAME),
       databaseExists: Boolean(databasePath && fs.existsSync(databasePath)),
@@ -608,7 +651,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     backgroundColor: '#f4f7fb',
-    title: 'FinNote',
+    title: BUILD && !BUILD.production ? `FinNote ${BUILD.channel.toUpperCase()} · ${BUILD.displayVersion}` : 'FinNote',
     icon: path.join(__dirname, '..', 'assets', 'finnote-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -622,6 +665,13 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (!isPrimaryInstance) return;
+  if (buildSetupError) {
+    // ไม่เปิดฐานข้อมูลใด ๆ เมื่อแยกโฟลเดอร์ข้อมูลของ channel ทดสอบไม่สำเร็จ
+    dialog.showErrorBox('FinNote เริ่มทำงานไม่สำเร็จ', `ไม่สามารถแยกโฟลเดอร์ข้อมูลของ Build นี้ได้ จึงหยุดเพื่อป้องกันข้อมูลจริง\n\n${buildSetupError.message || buildSetupError}`);
+    app.quit();
+    return;
+  }
   try {
     await openDatabase();
     registerIpc();

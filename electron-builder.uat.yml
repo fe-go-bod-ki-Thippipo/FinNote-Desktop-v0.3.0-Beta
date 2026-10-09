@@ -1,0 +1,38 @@
+# FinNote UAT build — แยกตัวตนจากโปรแกรมจริงทั้งหมด
+# หมายเหตุ: เมื่อใช้ --config ไฟล์นี้ electron-builder จะไม่อ่านส่วน "build" ใน package.json
+# จึงต้องระบุ files / asar / directories ครบในไฟล์นี้
+# ใช้ร่วมกับ: node scripts/write-build-info.js --channel uat
+appId: com.finnote.desktop.uat
+productName: FinNote UAT
+asar: true
+extraMetadata:
+  name: finnote-desktop-uat
+  productName: FinNote UAT
+files:
+  - Index.html
+  - electron/**/*
+  - assets/**/*
+  - node_modules/sql.js/dist/sql-wasm.js
+  - node_modules/sql.js/dist/sql-wasm.wasm
+  - package.json
+  - LICENSE
+  - build-info.json
+directories:
+  output: dist-uat
+  buildResources: build
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  executableName: FinNote-UAT
+  icon: build/icon.ico
+portable:
+  artifactName: FinNote-UAT-${version}-Portable.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: FinNote UAT
+  artifactName: FinNote-UAT-${version}-Setup.${ext}
