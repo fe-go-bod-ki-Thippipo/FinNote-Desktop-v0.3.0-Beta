@@ -60,6 +60,11 @@ for (const file of [...pkg.build.files, 'build-info.json']) {
   if (!uatConfig.includes(`- ${file}`)) throw new Error(`electron-builder.uat.yml ไม่ได้แพ็กไฟล์ ${file}`);
 }
 if (!/^asar:\s*true$/m.test(uatConfig)) throw new Error('UAT build ต้องเปิด asar');
+const portableConfig = fs.readFileSync(path.join(root, 'electron-builder.portable.yml'), 'utf8');
+for (const file of pkg.build.files) {
+  if (!portableConfig.includes(`- ${file}`)) throw new Error(`electron-builder.portable.yml ไม่ได้ระบุไฟล์ ${file} (จะแพ็กทั้งโปรเจกต์)`);
+}
+if (!/^asar:\s*true$/m.test(portableConfig)) throw new Error('Portable build ต้องเปิด asar');
 if (!pkg.build.files.includes('build-info.json')) throw new Error('package.json build.files ต้องมี build-info.json');
 
 // Main process ต้องแยก userData ตาม channel และกันหลาย instance เขียนฐานเดียวกัน
