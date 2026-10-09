@@ -660,6 +660,10 @@ function createWindow() {
       sandbox: true
     }
   });
+  // Keep the UAT/dev window identity visible when the renderer changes document.title.
+  if (BUILD && !BUILD.production) {
+    mainWindow.on('page-title-updated', event => event.preventDefault());
+  }
   mainWindow.removeMenu();
   mainWindow.loadFile(path.join(__dirname, '..', 'Index.html'));
 }
