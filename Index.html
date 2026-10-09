@@ -798,7 +798,8 @@ table thead th{background:var(--advanced-table-bg,var(--green-700));color:var(--
 .journal-linked-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .journal-linked-chip{font-size:11px;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}
 .journal-month-list{display:grid;gap:8px;margin-top:12px}
-.journal-month-row{display:grid;grid-template-columns:52px 1fr 42px;align-items:center;gap:8px;font-size:12px}
+.journal-month-row{display:grid;grid-template-columns:minmax(92px,auto) 1fr auto;align-items:center;gap:8px;font-size:12px}
+.journal-month-row>span,.journal-month-row>b{white-space:nowrap}
 .journal-month-track{height:7px;border-radius:99px;background:var(--bg);overflow:hidden}
 .journal-month-fill{height:100%;border-radius:99px;background:var(--green-500)}
 .journal-view-toggle{display:flex;gap:5px;padding:4px;border-radius:12px;background:var(--bg);width:max-content}
@@ -6333,6 +6334,43 @@ function journalSpending(entry){
     .filter(tx=>['expense','debt_payment'].includes(transactionTypeOf(tx)))
     .reduce((sum,tx)=>sum+Number(tx.amount||0),0);
 }
+/* REQ-15:BEGIN journalCalendarConsistency
+ * สถิติความสม่ำเสมอแบบเดือนปฏิทิน (วันที่ 1 ถึงวันสุดท้ายของเดือน)
+ * แยกจากระบบงวดการเงินโดยเจตนา: ห้ามใช้ monthKey(), cycleStartDay() หรือ cycleRange()
+ * - นับวันที่มีบันทึกที่ไม่ใช่ฉบับร่างอย่างน้อย 1 รายการเป็น 1 วัน
+ * - เดือนปัจจุบันนับถึงวันที่ todayIso เท่านั้น
+ * คืนค่าเรียงจากเดือนเก่าไปเดือนปัจจุบัน */
+function journalCalendarConsistency(journals, todayIso, monthsBack){
+  const back = Number.isInteger(monthsBack) && monthsBack >= 0 ? monthsBack : 2;
+  const today = String(todayIso || '');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(today)) return [];
+  const todayYear = Number(today.slice(0,4)), todayMonth = Number(today.slice(5,7)), todayDay = Number(today.slice(8,10));
+  const recordedDates = new Set();
+  (Array.isArray(journals) ? journals : []).forEach(item=>{
+    if(!item || item.draft) return;
+    const date = typeof item.date === 'string' ? item.date.slice(0,10) : '';
+    if(/^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today) recordedDates.add(date);
+  });
+  const result = [];
+  for(let offset = back; offset >= 0; offset--){
+    let year = todayYear, month = todayMonth - offset;
+    while(month < 1){ month += 12; year -= 1; }
+    const prefix = `${year}-${String(month).padStart(2,'0')}-`;
+    const isCurrent = offset === 0;
+    const totalDays = isCurrent ? todayDay : new Date(year, month, 0).getDate();
+    let recordedDays = 0;
+    recordedDates.forEach(date=>{ if(date.startsWith(prefix)) recordedDays += 1; });
+    result.push({
+      key: `${year}-${String(month).padStart(2,'0')}`,
+      year, month, isCurrent,
+      label: `${THAI_MONTHS[month-1]} ${toBuddhistYear(year)}`,
+      recordedDays, totalDays,
+      pct: totalDays > 0 ? Math.min(100, Math.round(recordedDays / totalDays * 1000) / 10) : 0
+    });
+  }
+  return result;
+}
+/* REQ-15:END */
 function journalMonthOptions(){
   return [...new Set(DATA.dailyJournals.map(item=>monthKey(item.date)))].sort().reverse()
     .map(value=>`<option value="${value}" ${journalFilters.month===value?'selected':''}>${monthLabel(value)}</option>`).join('');
@@ -6381,11 +6419,10 @@ function renderJournal(){
   const published = DATA.dailyJournals.filter(item=>!item.draft);
   const averageMood = published.length ? published.reduce((sum,item)=>sum+journalMood(item.mood).score,0)/published.length : 0;
   const linkedSpend = list.reduce((sum,item)=>sum+journalSpending(item),0);
-  const monthDays = DATA.dailyJournals.filter(item=>monthKey(item.date)===currentMonthKey() && !item.draft).length;
+  // REQ-15: ใช้เดือนปฏิทิน ไม่ผูกกับงวดการเงิน (cycleStartDay)
+  const consistency = journalCalendarConsistency(DATA.dailyJournals, todayISO(), 2);
+  const monthDays = consistency.length ? consistency[consistency.length-1].recordedDays : 0;
   const latest = [...DATA.dailyJournals].sort((a,b)=>b.date.localeCompare(a.date))[0];
-  const monthlyCounts = [...new Set(DATA.dailyJournals.map(item=>monthKey(item.date)))].sort().slice(-5)
-    .map(period=>({period,count:DATA.dailyJournals.filter(item=>monthKey(item.date)===period && !item.draft).length}));
-  const maxCount = Math.max(1,...monthlyCounts.map(item=>item.count));
 
   document.getElementById('content').innerHTML = `
     <div class="journal-hero">
@@ -6416,8 +6453,9 @@ function renderJournal(){
           </div>${latest?`<p class="sub" style="margin-top:10px">อารมณ์ล่าสุด: <b>${journalMood(latest.mood).emoji} ${journalMood(latest.mood).label}</b></p>`:''}
         </div>
         <div class="journal-card"><h4>ความสม่ำเสมอ</h4><div class="journal-month-list">
-          ${monthlyCounts.length ? monthlyCounts.map(item=>`<div class="journal-month-row"><span>${monthLabel(item.period).split(' ')[0]}</span>
-          <div class="journal-month-track"><div class="journal-month-fill" style="width:${item.count/maxCount*100}%"></div></div><b>${item.count} วัน</b></div>`).join('') : '<p class="sub">ข้อมูลจะแสดงหลังเริ่มเขียนบันทึก</p>'}
+          ${consistency.map(item=>`<div class="journal-month-row" title="${item.label}: บันทึก ${item.recordedDays} จาก ${item.totalDays} วัน (${item.pct}%)${item.isCurrent?' · นับถึงวันนี้':''}"><span>${item.label}</span>
+          <div class="journal-month-track" role="progressbar" aria-label="${item.label}" aria-valuemin="0" aria-valuemax="${item.totalDays}" aria-valuenow="${item.recordedDays}"><div class="journal-month-fill" style="width:${item.pct}%"></div></div><b>${item.recordedDays}/${item.totalDays} วัน</b></div>`).join('')}
+          <p class="sub" style="margin-top:4px;font-size:11px">นับวันที่มีบันทึก (ไม่รวมฉบับร่าง) ตามเดือนปฏิทิน · เดือนนี้นับถึงวันนี้</p>
         </div></div>
         <div class="journal-card"><h4>แนวทางการเขียน</h4><p class="sub" style="line-height:1.7">วันนี้เกิดอะไรขึ้น · รู้สึกอย่างไร · มีค่าใช้จ่ายอะไรที่เกิดจากอารมณ์ · พรุ่งนี้อยากทำอะไรให้ดีขึ้น</p></div>
       </aside>
