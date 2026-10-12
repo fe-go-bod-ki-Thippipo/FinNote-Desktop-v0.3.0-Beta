@@ -6051,7 +6051,7 @@ function renderSettings(){
       showToast('ลบภาพตกแต่งแล้ว');
     });
   });
-  document.getElementById('btnOpenSupportPage').addEventListener('click',()=>navigate('support'));
+  document.getElementById('btnOpenSupportPage')?.addEventListener('click',()=>navigate('support'));
   if(IS_DESKTOP){
     document.getElementById('btnDesktopSave').addEventListener('click', ()=>saveDesktopData(false));
     document.getElementById('btnDesktopSnapshot').addEventListener('click', async()=>{
