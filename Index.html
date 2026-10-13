@@ -6319,11 +6319,20 @@ async function lockFinNote(){
     document.getElementById('content').innerHTML='';
     showSecurityGate('login',await window.finnoteDesktop.securityStatus());
   }catch(error){
-    showToast(error.message||'ไม่สามารถล็อก FinNote ได้');
-    console.error(error);
+    // Security must fail closed: a failed save must not leave financial data visible.
+    console.error('FinNote lock: save or lock failed', error);
+    try{ await window.finnoteDesktop.securityLock(); }catch(lockError){ console.error('FinNote lock IPC failed', lockError); }
+    DATA=null;
+    document.getElementById('content').innerHTML='';
+    try{ showSecurityGate('login',await window.finnoteDesktop.securityStatus()); }
+    catch(gateError){
+      console.error('FinNote security gate failed',gateError);
+      document.body.replaceChildren(document.createTextNode('FinNote ถูกล็อกเพื่อความปลอดภัย กรุณาปิดและเปิดโปรแกรมใหม่ ข้อมูลที่ยังไม่ได้บันทึกอาจสูญหาย'));
+    }
+    showToast('FinNote ถูกล็อกแล้ว แต่การบันทึกอาจไม่สำเร็จ กรุณาตรวจสอบข้อมูลหลังเข้าสู่ระบบ');
   }finally{
     finNoteLocking=false;
-    resetFinNoteIdleTimer();
+    if(DATA) resetFinNoteIdleTimer();
   }
 }
 
