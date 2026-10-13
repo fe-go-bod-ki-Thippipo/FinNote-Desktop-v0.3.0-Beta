@@ -733,7 +733,15 @@ app.whenReady().then(async () => {
     // Notify renderer to persist changes and lock on OS lock/suspend.
     for (const eventName of ['lock-screen', 'suspend', 'resume', 'unlock-screen']) {
       powerMonitor.on(eventName, () => {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app:system-lock');
+        // OS security transitions must not depend on renderer responsiveness.
+        // Save-on-change is the durable path; a suspend event cannot await IPC.
+        if (unlockedMasterKey) unlockedMasterKey.fill(0);
+        unlockedMasterKey = null;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('app:system-lock');
+          // Hide any sensitive renderer content even if its lock handler stalls.
+          mainWindow.hide();
+        }
       });
     }
   } catch (error) {
