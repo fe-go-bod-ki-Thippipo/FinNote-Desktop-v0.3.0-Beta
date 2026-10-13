@@ -6374,6 +6374,7 @@ async function lockFinNote(){
     await window.finnoteDesktop.securityLock();
     DATA=null;
     document.getElementById('content').innerHTML='';
+    document.getElementById('modalRoot')?.replaceChildren();
     showSecurityGate('login',await window.finnoteDesktop.securityStatus());
   }catch(error){
     // Security must fail closed: a failed save must not leave financial data visible.
@@ -6381,6 +6382,7 @@ async function lockFinNote(){
     try{ await window.finnoteDesktop.securityLock(); }catch(lockError){ console.error('FinNote lock IPC failed', lockError); }
     DATA=null;
     document.getElementById('content').innerHTML='';
+    document.getElementById('modalRoot')?.replaceChildren();
     try{ showSecurityGate('login',await window.finnoteDesktop.securityStatus()); }
     catch(gateError){
       console.error('FinNote security gate failed',gateError);
