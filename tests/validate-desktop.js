@@ -67,11 +67,11 @@ for (const file of pkg.build.files) {
 if (!/^asar:\s*true$/m.test(portableConfig)) throw new Error('Portable build ต้องเปิด asar');
 if (!pkg.build.files.includes('build-info.json')) throw new Error('package.json build.files ต้องมี build-info.json');
 
-// Regression guards F-M1: production packaging must refresh beta metadata before electron-builder.
+// Regression guards F-M1: production packaging must refresh stable metadata before electron-builder.
 for (const scriptName of ['dist:win', 'dist:portable']) {
   const script = String(pkg.scripts?.[scriptName] || '');
   if (!/^node scripts\/write-build-info\.js --channel beta && electron-builder\b/.test(script)) {
-    throw new Error(`${scriptName} ต้องสร้าง beta build metadata ก่อนแพ็กโปรแกรม (F-M1)`);
+    throw new Error(`${scriptName} ต้องสร้าง stable build metadata ก่อนแพ็กโปรแกรม (F-M1)`);
   }
 }
 // Regression guard F-L1: UAT/dev window title must survive renderer document.title updates.
