@@ -4994,35 +4994,57 @@ function exportCSV(ym){
   showToast('ส่งออก CSV แล้ว');
 }
 function handleImportFile(e){
-  const file = e.target.files[0];
+  const file=e.target.files[0];
   if(!file) return;
-  const reader = new FileReader();
-  reader.onload = ()=>{
+  const reader=new FileReader();
+  reader.onload=()=>{
     try{
-      const imported = JSON.parse(reader.result);
-      if(!imported || typeof imported!=='object' || Array.isArray(imported) || !Array.isArray(imported.transactions) || !imported.settings || typeof imported.settings!=='object') throw new Error('Invalid FinNote JSON');
+      const imported=JSON.parse(reader.result);
+      if(!imported || typeof imported!=='object' || Array.isArray(imported) ||
+         !Array.isArray(imported.transactions) || !imported.settings ||
+         typeof imported.settings!=='object' || Array.isArray(imported.settings)) {
+        throw new Error('ไฟล์ไม่ใช่ข้อมูล FinNote ที่รองรับ');
+      }
+      for(const key of ['debts','accounts','goals','recurringTemplates','categoryMaster','journals']){
+        if(imported[key]!==undefined && !Array.isArray(imported[key])) throw new Error('โครงสร้าง '+key+' ไม่ถูกต้อง');
+      }
+      if(imported.categories!==undefined && (!imported.categories || typeof imported.categories!=='object' ||
+         !Array.isArray(imported.categories.income) || !Array.isArray(imported.categories.expense))) {
+        throw new Error('โครงสร้างหมวดหมู่ไม่ถูกต้อง');
+      }
+      // Migrate a detached copy before confirming or touching the current database.
+      const migrated=migrateData(JSON.parse(JSON.stringify(imported)));
       openConfirmModal('นำเข้าข้อมูล?', 'ระบบจะสำรองข้อมูลปัจจุบันก่อนแทนที่ด้วยไฟล์ที่นำเข้า', async()=>{
+        const previous=DATA;
         try{
           if(IS_DESKTOP){
             await saveDesktopData(true);
             if(cloudStatus==='error') throw new Error('บันทึกข้อมูลเดิมก่อนสำรองไม่สำเร็จ');
             const backup=await window.finnoteDesktop.backup('pre-import');
             if(!backup?.ok) throw new Error('สำรองข้อมูลเดิมก่อนนำเข้าไม่สำเร็จ');
+            const result=await window.finnoteDesktop.save(migrated);
+            if(!result?.ok) throw new Error('บันทึกข้อมูลนำเข้าไม่สำเร็จ');
+            lastCloudSavedAt=result.updatedAt;
+            cloudStatus='connected';cloudErrorMsg='';
+            updateCloudStatusUI();
           }
-          const migrated=migrateData(imported);
           DATA=migrated;
-          saveData(true);
+          if(!IS_DESKTOP) saveData(true);
           applyTheme();
           navigate(currentView);
           showToast('นำเข้าข้อมูลสำเร็จ');
-        }catch(error){showToast(error.message||'นำเข้าไม่สำเร็จ ข้อมูลเดิมยังอยู่');}
+        }catch(error){
+          DATA=previous;
+          showToast(error.message||'นำเข้าไม่สำเร็จ ข้อมูลเดิมยังอยู่');
+          console.error('FinNote import failed',error);
+        }
       });
     }catch(err){
-      showToast('ไฟล์ไม่ถูกต้อง ไม่สามารถนำเข้าได้');
+      showToast(err.message||'ไฟล์ไม่ถูกต้อง ไม่สามารถนำเข้าได้');
     }
   };
   reader.readAsText(file);
-  e.target.value = '';
+  e.target.value='';
 }
 
 function generateRecurringForCurrentPeriod(){
