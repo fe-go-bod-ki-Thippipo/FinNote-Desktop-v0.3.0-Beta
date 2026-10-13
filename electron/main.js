@@ -628,6 +628,51 @@ function registerIpc() {
     return { ok: true, createdAt: now };
   });
 
+  // Restore is intentionally restricted to authenticated, unlocked desktop sessions.
+  ipcMain.handle('db:backups:list', () => {
+    requireUnlocked();
+    const stmt = database.prepare('SELECT id, reason, created_at FROM backups ORDER BY id DESC LIMIT 20');
+    const items = [];
+    try {
+      while (stmt.step()) items.push(stmt.getAsObject());
+    } finally { stmt.free(); }
+    return items;
+  });
+
+  ipcMain.handle('db:backups:restore', (_event, backupId) => {
+    requireUnlocked();
+    if (!Number.isSafeInteger(backupId) || backupId <= 0) throw new Error('Invalid backup id');
+    const backup = firstRow('SELECT id, data_json FROM backups WHERE id = ?', [backupId]);
+    if (!backup) throw new Error('ไม่พบข้อมูลสำรองที่เลือก');
+    const restored = decryptJsonText(backup.data_json, `backup:${backup.id}`);
+    if (!restored || typeof restored !== 'object' || !Array.isArray(restored.transactions)) {
+      throw new Error('ข้อมูลสำรองมีโครงสร้างไม่ถูกต้อง');
+    }
+    const current = firstRow('SELECT data_json FROM app_data WHERE id = 1');
+    if (!current) throw new Error('ไม่พบข้อมูลปัจจุบันสำหรับสำรองก่อนกู้คืน');
+    const previous = decryptJsonText(current.data_json, 'app_data:1');
+    const now = new Date().toISOString();
+    // The safety copy and restored payload are persisted together. Roll back in-memory
+    // SQL.js changes if encryption, insertion or disk persistence fails.
+    database.run('BEGIN TRANSACTION');
+    try {
+      database.run('INSERT INTO backups (data_json, reason, created_at) VALUES (?, ?, ?)',
+        [JSON.stringify(previous), 'pre-restore', now]);
+      const safetyId = firstRow('SELECT last_insert_rowid() AS id').id;
+      database.run('UPDATE backups SET data_json = ? WHERE id = ?',
+        [encryptJsonObject(previous, `backup:${safetyId}`), safetyId]);
+      database.run('UPDATE app_data SET schema_version = ?, data_json = ?, updated_at = ? WHERE id = 1',
+        [Number(restored.version || 1), encryptJsonObject(restored, 'app_data:1'), now]);
+      database.run('DELETE FROM backups WHERE id NOT IN (SELECT id FROM backups ORDER BY id DESC LIMIT 20)');
+      database.run('COMMIT');
+      persistDatabase();
+      return { ok: true, updatedAt: now };
+    } catch (error) {
+      try { database.run('ROLLBACK'); } catch (_) {}
+      throw error;
+    }
+  });
+
   ipcMain.handle('db:info', () => {
     const meta = safeAppMeta();
     return {
