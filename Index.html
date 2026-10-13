@@ -1314,8 +1314,14 @@ async function loadDesktopData(){
       DATA = migrateData(defaultData());
       await window.finnoteDesktop.save(DATA);
     }
+    cloudStatus = 'connected';
+    cloudErrorMsg = '';
+    updateCloudStatusUI();
     return true;
   }catch(error){
+    cloudStatus = 'error';
+    cloudErrorMsg = error.message || 'โหลดฐานข้อมูล SQLite ไม่สำเร็จ';
+    updateCloudStatusUI();
     console.error('โหลดฐานข้อมูล SQLite ไม่สำเร็จ', error);
     return false;
   }
@@ -6051,7 +6057,7 @@ function renderSettings(){
       showToast('ลบภาพตกแต่งแล้ว');
     });
   });
-  document.getElementById('btnOpenSupportPage').addEventListener('click',()=>navigate('support'));
+  document.getElementById('btnOpenSupportPage')?.addEventListener('click',()=>navigate('support'));
   if(IS_DESKTOP){
     document.getElementById('btnDesktopSave').addEventListener('click', ()=>saveDesktopData(false));
     document.getElementById('btnDesktopSnapshot').addEventListener('click', async()=>{
