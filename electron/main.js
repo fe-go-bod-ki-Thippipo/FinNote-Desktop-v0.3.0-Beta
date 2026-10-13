@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -680,6 +680,12 @@ app.whenReady().then(async () => {
     await openDatabase();
     registerIpc();
     createWindow();
+    // Notify renderer to persist changes and lock on OS lock/suspend.
+    for (const eventName of ['lock-screen', 'suspend']) {
+      powerMonitor.on(eventName, () => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app:system-lock');
+      });
+    }
   } catch (error) {
     logDiagnostic('เริ่ม FinNote ไม่สำเร็จ', error);
     dialog.showErrorBox('FinNote เริ่มทำงานไม่สำเร็จ', `${error.message || error}\n\nLog: ${path.join(app.getPath('userData'), LOG_FILE_NAME)}`);
