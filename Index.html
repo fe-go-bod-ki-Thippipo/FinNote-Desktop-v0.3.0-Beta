@@ -5684,10 +5684,40 @@ function renderAlertSettings(){
   document.getElementById('btnSaveAlertRules').addEventListener('click',()=>{document.querySelectorAll('[data-alert-enable]').forEach(el=>{const key=el.dataset.alertEnable;r[key]=r[key]||{};r[key].active=el.checked});document.querySelectorAll('[data-alert-value]').forEach(el=>{const key=el.dataset.alertValue;r[key]=r[key]||{};r[key][el.dataset.field]=Math.max(0,Number(el.value||0))});r.budget=r.budget||{};r.budget.dangerPct=Math.max(Number(r.budget.warningPct||80),Number(document.getElementById('alertBudgetDanger').value||100));saveData(true);showToast('บันทึกการตั้งค่าแจ้งเตือนแล้ว');renderAlertSettings()});
 }
 
+async function openDesktopRestoreBackups(){
+  if(!IS_DESKTOP || !DATA) return;
+  try{
+    const backups=await window.finnoteDesktop.listBackups();
+    if(!Array.isArray(backups) || !backups.length){showToast('ยังไม่มีข้อมูลสำรองให้กู้คืน');return;}
+    const options=backups.map(b=>`<option value="${Number(b.id)}">${escapeHtml(String(b.created_at||''))} · ${escapeHtml(String(b.reason||''))} (#${Number(b.id)})</option>`).join('');
+    const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>กู้คืนข้อมูลสำรอง</h3><p class="muted">การกู้คืนจะแทนที่ข้อมูลปัจจุบัน กรุณาเลือกชุดข้อมูลให้ถูกต้อง</p><div class="form-row"><label for="restoreBackupId">รายการสำรอง</label><select id="restoreBackupId">${options}</select></div><div class="btn-row"><button type="button" class="btn" data-close>ยกเลิก</button><button type="button" class="btn danger" id="btnConfirmRestoreBackup">ดำเนินการกู้คืน</button></div>`);
+    overlay.querySelector('#btnConfirmRestoreBackup').addEventListener('click',()=>{
+      const id=Number(overlay.querySelector('#restoreBackupId').value);
+      closeModal();
+      openConfirmModal('ยืนยันการกู้คืนข้อมูล?', 'ข้อมูลปัจจุบันจะถูกสำรองก่อนแทนที่ด้วยข้อมูลที่เลือก ต้องการดำเนินการต่อหรือไม่',async()=>{
+        try{
+          const result=await window.finnoteDesktop.restoreBackup(id);
+          if(!result?.ok) throw new Error('กู้คืนข้อมูลไม่สำเร็จ');
+          // Reload from the authoritative encrypted SQLite store; never use a stale in-memory copy.
+          const loaded=await window.finnoteDesktop.load();
+          if(!loaded?.data) throw new Error('ไม่สามารถโหลดข้อมูลหลังการกู้คืน');
+          DATA=migrateData(loaded.data);
+          applyTheme();navigate('settings');
+          showToast('กู้คืนข้อมูลสำเร็จ');
+        }catch(error){
+          console.error('FinNote restore failed',error);
+          showToast(error.message||'กู้คืนข้อมูลไม่สำเร็จ');
+        }
+      });
+    });
+  }catch(error){console.error('FinNote backup list failed',error);showToast(error.message||'ไม่สามารถแสดงข้อมูลสำรอง');}
+}
+
 function renderSettings(){
   const s = DATA.settings;
   const lastSaved = localStorage.getItem(STORAGE_KEY + '_lastSaved');
   const html = `
+    ${IS_DESKTOP ? `<div class="panel" style="margin-bottom:16px"><h3>🗂️ กู้คืนข้อมูลสำรอง</h3><p class="sub">เลือกข้อมูลสำรองที่บันทึกไว้ในฐานข้อมูลเครื่องนี้ ระบบจะสำรองข้อมูลปัจจุบันอีกครั้งก่อนกู้คืน</p><button type="button" class="btn" id="btnOpenRestoreBackups">ดูรายการข้อมูลสำรอง</button></div>` : ''}
     ${IS_DESKTOP ? `<div class="panel" style="margin-bottom:16px"><h3>🔒 ล็อกอัตโนมัติ</h3><div class="form-row"><label for="sAutoLockMinutes">ล็อกเมื่อไม่มีการใช้งาน</label><select id="sAutoLockMinutes">${[0,5,10,15,30].map(n=>`<option value="${n}" ${Number(s.autoLockMinutes ?? 10)===n?'selected':''}>${n===0?'ปิดการล็อกอัตโนมัติ':n+' นาที'}</option>`).join('')}</select><span class="sub">เมื่อหมดเวลาจะบันทึกข้อมูลก่อนล็อก และต้องใส่รหัสผ่านอีกครั้ง</span></div></div>` : ''}
     <div class="panel" style="margin-bottom:16px;">
       <div class="settings-section-head"><div><h3>ปรับแต่งแอปของคุณ</h3><p class="sub">ตั้งชื่อ เลือกโลโก้ และเพิ่มภาพตกแต่ง เพื่อให้พื้นที่การเงินนี้เป็นของคุณมากขึ้น</p></div></div>
