@@ -43,6 +43,23 @@ for (const marker of ['securityStatus', 'securitySetup', 'securityUnlock', 'secu
   if (!preload.includes(marker)) throw new Error(`preload.js ไม่มี marker: ${marker}`);
 }
 
+// Security regression checks: OS lock must invalidate the main-process key,
+// renderer must clear visible financial state before awaiting any IPC.
+for (const event of ['lock-screen','suspend','resume','unlock-screen']) {
+  if (!main.includes(`'${event}'`)) throw new Error(`Missing OS security event: ${event}`);
+}
+const osLock = main.slice(main.indexOf("for (const eventName of ['lock-screen'"), main.indexOf("} catch (error) {", main.indexOf("for (const eventName of ['lock-screen'")));
+if (!/unlockedMasterKey\.fill\(0\)/.test(osLock) || !/unlockedMasterKey = null/.test(osLock)) {
+  throw new Error('OS lock must clear the main-process encryption key');
+}
+const osLockHandler = index.slice(index.indexOf('onSystemLock?.('), index.indexOf('async function lockFinNote(){'));
+if (!osLockHandler.includes('DATA=null') || !osLockHandler.includes("getElementById('content')?.replaceChildren()")) {
+  throw new Error('OS lock must synchronously clear sensitive renderer state');
+}
+if (!preload.includes('restoreBackup') || !main.includes("'db:backups:restore'")) {
+  throw new Error('Backup restore IPC must be connected');
+}
+
 // Version: package.json เป็นแหล่งเดียว ต้องเป็น SemVer 2.0 (ไม่ล็อกค่าตายตัว เพื่อให้ออกรุ่นใหม่ได้)
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
 if (!SEMVER.test(String(pkg.version || ''))) throw new Error(`version ไม่ใช่ SemVer (ไม่รวม +metadata): ${pkg.version}`);
@@ -67,11 +84,11 @@ for (const file of pkg.build.files) {
 if (!/^asar:\s*true$/m.test(portableConfig)) throw new Error('Portable build ต้องเปิด asar');
 if (!pkg.build.files.includes('build-info.json')) throw new Error('package.json build.files ต้องมี build-info.json');
 
-// Regression guards F-M1: production packaging must refresh beta metadata before electron-builder.
+// Regression guards F-M1: production packaging must refresh stable metadata before electron-builder.
 for (const scriptName of ['dist:win', 'dist:portable']) {
   const script = String(pkg.scripts?.[scriptName] || '');
-  if (!/^node scripts\/write-build-info\.js --channel beta && electron-builder\b/.test(script)) {
-    throw new Error(`${scriptName} ต้องสร้าง beta build metadata ก่อนแพ็กโปรแกรม (F-M1)`);
+  if (!/^node scripts\/write-build-info\.js --channel stable && electron-builder\b/.test(script)) {
+    throw new Error(`${scriptName} ต้องสร้าง stable build metadata ก่อนแพ็กโปรแกรม (F-M1)`);
   }
 }
 // Regression guard F-L1: UAT/dev window title must survive renderer document.title updates.

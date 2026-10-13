@@ -1088,6 +1088,7 @@ function defaultData(){
         accent: '#FFBE32', border: '#E5E7EB', statusNormal: '#15803D', statusWarning: '#B7791F', statusOver: '#B42318'
       },
       appName: 'FinNote',
+      autoLockMinutes: 10,
       logoDataUrl: '',
       decorationDataUrl: '',
       creatorName: '',
@@ -1314,8 +1315,14 @@ async function loadDesktopData(){
       DATA = migrateData(defaultData());
       await window.finnoteDesktop.save(DATA);
     }
+    cloudStatus = 'connected';
+    cloudErrorMsg = '';
+    updateCloudStatusUI();
     return true;
   }catch(error){
+    cloudStatus = 'error';
+    cloudErrorMsg = error.message || 'โหลดฐานข้อมูล SQLite ไม่สำเร็จ';
+    updateCloudStatusUI();
     console.error('โหลดฐานข้อมูล SQLite ไม่สำเร็จ', error);
     return false;
   }
@@ -4987,25 +4994,57 @@ function exportCSV(ym){
   showToast('ส่งออก CSV แล้ว');
 }
 function handleImportFile(e){
-  const file = e.target.files[0];
+  const file=e.target.files[0];
   if(!file) return;
-  const reader = new FileReader();
-  reader.onload = ()=>{
+  const reader=new FileReader();
+  reader.onload=()=>{
     try{
-      const imported = JSON.parse(reader.result);
-      openConfirmModal('นำเข้าข้อมูล?', 'ข้อมูลปัจจุบันทั้งหมดจะถูกแทนที่ด้วยไฟล์ที่นำเข้า', ()=>{
-        DATA = migrateData(imported);
-        saveData(true);
-        applyTheme();
-        navigate(currentView);
-        showToast('นำเข้าข้อมูลสำเร็จ');
+      const imported=JSON.parse(reader.result);
+      if(!imported || typeof imported!=='object' || Array.isArray(imported) ||
+         !Array.isArray(imported.transactions) || !imported.settings ||
+         typeof imported.settings!=='object' || Array.isArray(imported.settings)) {
+        throw new Error('ไฟล์ไม่ใช่ข้อมูล FinNote ที่รองรับ');
+      }
+      for(const key of ['debts','accounts','goals','recurringTemplates','categoryMaster','journals']){
+        if(imported[key]!==undefined && !Array.isArray(imported[key])) throw new Error('โครงสร้าง '+key+' ไม่ถูกต้อง');
+      }
+      if(imported.categories!==undefined && (!imported.categories || typeof imported.categories!=='object' ||
+         !Array.isArray(imported.categories.income) || !Array.isArray(imported.categories.expense))) {
+        throw new Error('โครงสร้างหมวดหมู่ไม่ถูกต้อง');
+      }
+      // Migrate a detached copy before confirming or touching the current database.
+      const migrated=migrateData(JSON.parse(JSON.stringify(imported)));
+      openConfirmModal('นำเข้าข้อมูล?', 'ระบบจะสำรองข้อมูลปัจจุบันก่อนแทนที่ด้วยไฟล์ที่นำเข้า', async()=>{
+        const previous=DATA;
+        try{
+          if(IS_DESKTOP){
+            await saveDesktopData(true);
+            if(cloudStatus==='error') throw new Error('บันทึกข้อมูลเดิมก่อนสำรองไม่สำเร็จ');
+            const backup=await window.finnoteDesktop.backup('pre-import');
+            if(!backup?.ok) throw new Error('สำรองข้อมูลเดิมก่อนนำเข้าไม่สำเร็จ');
+            const result=await window.finnoteDesktop.save(migrated);
+            if(!result?.ok) throw new Error('บันทึกข้อมูลนำเข้าไม่สำเร็จ');
+            lastCloudSavedAt=result.updatedAt;
+            cloudStatus='connected';cloudErrorMsg='';
+            updateCloudStatusUI();
+          }
+          DATA=migrated;
+          if(!IS_DESKTOP) saveData(true);
+          applyTheme();
+          navigate(currentView);
+          showToast('นำเข้าข้อมูลสำเร็จ');
+        }catch(error){
+          DATA=previous;
+          showToast(error.message||'นำเข้าไม่สำเร็จ ข้อมูลเดิมยังอยู่');
+          console.error('FinNote import failed',error);
+        }
       });
     }catch(err){
-      showToast('ไฟล์ไม่ถูกต้อง ไม่สามารถนำเข้าได้');
+      showToast(err.message||'ไฟล์ไม่ถูกต้อง ไม่สามารถนำเข้าได้');
     }
   };
   reader.readAsText(file);
-  e.target.value = '';
+  e.target.value='';
 }
 
 function generateRecurringForCurrentPeriod(){
@@ -5645,10 +5684,46 @@ function renderAlertSettings(){
   document.getElementById('btnSaveAlertRules').addEventListener('click',()=>{document.querySelectorAll('[data-alert-enable]').forEach(el=>{const key=el.dataset.alertEnable;r[key]=r[key]||{};r[key].active=el.checked});document.querySelectorAll('[data-alert-value]').forEach(el=>{const key=el.dataset.alertValue;r[key]=r[key]||{};r[key][el.dataset.field]=Math.max(0,Number(el.value||0))});r.budget=r.budget||{};r.budget.dangerPct=Math.max(Number(r.budget.warningPct||80),Number(document.getElementById('alertBudgetDanger').value||100));saveData(true);showToast('บันทึกการตั้งค่าแจ้งเตือนแล้ว');renderAlertSettings()});
 }
 
+async function openDesktopRestoreBackups(){
+  if(!IS_DESKTOP || !DATA) return;
+  try{
+    const backups=await window.finnoteDesktop.listBackups();
+    if(!Array.isArray(backups) || !backups.length){showToast('ยังไม่มีข้อมูลสำรองให้กู้คืน');return;}
+    const options=backups.map(b=>`<option value="${Number(b.id)}">${escapeHtml(String(b.created_at||''))} · ${escapeHtml(String(b.reason||''))} (#${Number(b.id)})</option>`).join('');
+    const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>กู้คืนข้อมูลสำรอง</h3><p class="muted">การกู้คืนจะแทนที่ข้อมูลปัจจุบัน กรุณาเลือกชุดข้อมูลให้ถูกต้อง</p><div class="form-row"><label for="restoreBackupId">รายการสำรอง</label><select id="restoreBackupId">${options}</select></div><div class="btn-row"><button type="button" class="btn" data-close>ยกเลิก</button><button type="button" class="btn danger" id="btnConfirmRestoreBackup">ดำเนินการกู้คืน</button></div>`);
+    overlay.querySelector('#btnConfirmRestoreBackup').addEventListener('click',()=>{
+      const id=Number(overlay.querySelector('#restoreBackupId').value);
+      closeModal();
+      openConfirmModal('ยืนยันการกู้คืนข้อมูล?', 'ข้อมูลปัจจุบันจะถูกสำรองก่อนแทนที่ด้วยข้อมูลที่เลือก ต้องการดำเนินการต่อหรือไม่',async()=>{
+        try{
+          const result=await window.finnoteDesktop.restoreBackup(id);
+          if(!result?.ok) throw new Error('กู้คืนข้อมูลไม่สำเร็จ');
+          // Reload from the authoritative encrypted SQLite store; never use a stale in-memory copy.
+          const loaded=await window.finnoteDesktop.load();
+          if(!loaded?.data) throw new Error('ไม่สามารถโหลดข้อมูลหลังการกู้คืน');
+          DATA=migrateData(loaded.data);
+          applyTheme();navigate('settings');
+          showToast('กู้คืนข้อมูลสำเร็จ');
+        }catch(error){
+          console.error('FinNote restore failed',error);
+          showToast(error.message||'กู้คืนข้อมูลไม่สำเร็จ');
+        }
+      });
+    });
+  }catch(error){console.error('FinNote backup list failed',error);showToast(error.message||'ไม่สามารถแสดงข้อมูลสำรอง');}
+}
+
+// Delegate once: settings is re-rendered frequently and direct button handlers are lost.
+document.addEventListener('click', event=>{
+  if(event.target.closest('#btnOpenRestoreBackups')) openDesktopRestoreBackups();
+});
+
 function renderSettings(){
   const s = DATA.settings;
   const lastSaved = localStorage.getItem(STORAGE_KEY + '_lastSaved');
   const html = `
+    ${IS_DESKTOP ? `<div class="panel" style="margin-bottom:16px"><h3>🗂️ กู้คืนข้อมูลสำรอง</h3><p class="sub">เลือกข้อมูลสำรองที่บันทึกไว้ในฐานข้อมูลเครื่องนี้ ระบบจะสำรองข้อมูลปัจจุบันอีกครั้งก่อนกู้คืน</p><button type="button" class="btn" id="btnOpenRestoreBackups">ดูรายการข้อมูลสำรอง</button></div>` : ''}
+    ${IS_DESKTOP ? `<div class="panel" style="margin-bottom:16px"><h3>🔒 ล็อกอัตโนมัติ</h3><div class="form-row"><label for="sAutoLockMinutes">ล็อกเมื่อไม่มีการใช้งาน</label><select id="sAutoLockMinutes">${[0,5,10,15,30].map(n=>`<option value="${n}" ${Number(s.autoLockMinutes ?? 10)===n?'selected':''}>${n===0?'ปิดการล็อกอัตโนมัติ':n+' นาที'}</option>`).join('')}</select><span class="sub">เมื่อหมดเวลาจะบันทึกข้อมูลก่อนล็อก และต้องใส่รหัสผ่านอีกครั้ง</span></div></div>` : ''}
     <div class="panel" style="margin-bottom:16px;">
       <div class="settings-section-head"><div><h3>ปรับแต่งแอปของคุณ</h3><p class="sub">ตั้งชื่อ เลือกโลโก้ และเพิ่มภาพตกแต่ง เพื่อให้พื้นที่การเงินนี้เป็นของคุณมากขึ้น</p></div></div>
       <div class="form-row">
@@ -5857,6 +5932,11 @@ function renderSettings(){
   document.getElementById('btnChangeOwnerPassword')?.addEventListener('click',openChangePasswordModal);
   document.getElementById('btnNewRecoveryKey')?.addEventListener('click',openNewRecoveryKeyModal);
   document.getElementById('btnLockFinNote')?.addEventListener('click',lockFinNote);
+  document.getElementById('sAutoLockMinutes')?.addEventListener('change',event=>{
+    DATA.settings.autoLockMinutes=Number(event.target.value);
+    saveData(true);
+    resetFinNoteIdleTimer();
+  });
   const bindAlertGoalRows=()=>{
     document.querySelectorAll('[data-alert-row]').forEach(row=>{
       const typeSelect=row.querySelector('[data-alert-type]');
@@ -6051,7 +6131,7 @@ function renderSettings(){
       showToast('ลบภาพตกแต่งแล้ว');
     });
   });
-  document.getElementById('btnOpenSupportPage').addEventListener('click',()=>navigate('support'));
+  document.getElementById('btnOpenSupportPage')?.addEventListener('click',()=>navigate('support'));
   if(IS_DESKTOP){
     document.getElementById('btnDesktopSave').addEventListener('click', ()=>saveDesktopData(false));
     document.getElementById('btnDesktopSnapshot').addEventListener('click', async()=>{
@@ -6244,6 +6324,7 @@ async function startUnlockedApp(){
   await maybeOfferLegacyMigration();
   const loaded=await loadDesktopData(); if(!loaded) throw new Error('โหลดฐานข้อมูลหลังปลดล็อกไม่สำเร็จ');
   applyBrandLogo();applyTheme();applySidebarOrder();initSidebarDragDrop();navigate('dashboard');updateCloudStatusUI();
+  resetFinNoteIdleTimer();
 }
 async function ensureDesktopSecurity(){
   if(!IS_DESKTOP)return false;
@@ -6269,9 +6350,64 @@ function openNewRecoveryKeyModal(){
   const overlay=openModal(`<button class="modal-close" data-close>✕</button><h3>สร้าง Recovery Key ใหม่</h3><p class="sub">กุญแจเดิมจะใช้ไม่ได้หลังสร้างกุญแจใหม่</p><div class="form-row"><label>ยืนยันรหัสผ่านปัจจุบัน</label><input id="recoveryPw" type="password"></div><div class="btn-row"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="makeRecovery">สร้างกุญแจใหม่</button></div>`);
   overlay.querySelector('#makeRecovery').addEventListener('click',async()=>{try{const result=await window.finnoteDesktop.securityNewRecovery(overlay.querySelector('#recoveryPw').value);overlay.querySelector('.modal').innerHTML=`<button class="modal-close" data-close>✕</button><h3>Recovery Key ใหม่</h3><div class="recovery-box">${escapeHtml(result.recoveryKey)}</div><p class="sub" style="margin-top:10px">เก็บกุญแจนี้ไว้นอกเครื่อง กุญแจเดิมถูกยกเลิกแล้ว</p><div class="btn-row"><button class="btn primary" data-close>ปิด</button></div>`;overlay.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));}catch(error){showToast(error.message||'สร้าง Recovery Key ไม่สำเร็จ');}});
 }
+let finNoteIdleTimer=null;
+let finNoteLocking=false;
+function resetFinNoteIdleTimer(){
+  clearTimeout(finNoteIdleTimer);
+  if(!IS_DESKTOP || !DATA || finNoteLocking) return;
+  const minutes=Number(DATA.settings?.autoLockMinutes ?? 10);
+  if(!Number.isFinite(minutes) || minutes<=0) return;
+  finNoteIdleTimer=setTimeout(()=>{lockFinNote().catch(error=>console.error('Auto Lock ไม่สำเร็จ',error));},minutes*60000);
+}
+if(IS_DESKTOP){
+  ['pointerdown','keydown','wheel','touchstart'].forEach(name=>document.addEventListener(name,resetFinNoteIdleTimer,{passive:true}));
+  window.finnoteDesktop.onSystemLock?.(()=>{
+    // The main process has already invalidated the encryption key. Do not await a
+    // save: immediately clear sensitive DOM and show the locked gate.
+    clearTimeout(finNoteIdleTimer);
+    clearTimeout(desktopSaveTimer);
+    finNoteLocking=true;
+    DATA=null;
+    document.getElementById('content')?.replaceChildren();
+    document.getElementById('modalRoot')?.replaceChildren();
+    const gate=getSecurityGate();
+    gate.classList.remove('hidden');
+    gate.textContent='FinNote ถูกล็อกเพื่อความปลอดภัย กำลังเตรียมหน้าล็อกอิน…';
+    window.finnoteDesktop.securityStatus().then(status=>showSecurityGate('login',status))
+      .catch(error=>{console.error('System Lock gate failed',error);gate.textContent='FinNote ถูกล็อก กรุณาปิดและเปิดโปรแกรมใหม่';})
+      .finally(()=>{finNoteLocking=false;});
+  });
+}
 async function lockFinNote(){
+  if(!IS_DESKTOP || !DATA || finNoteLocking) return;
+  finNoteLocking=true;
+  clearTimeout(finNoteIdleTimer);
   clearTimeout(desktopSaveTimer);
-  await window.finnoteDesktop.securityLock();DATA=null;document.getElementById('content').innerHTML='';showSecurityGate('login',await window.finnoteDesktop.securityStatus());
+  try{
+    await saveDesktopData(true);
+    if(cloudStatus==='error') throw new Error(cloudErrorMsg||'บันทึกข้อมูลก่อนล็อกไม่สำเร็จ');
+    await window.finnoteDesktop.securityLock();
+    DATA=null;
+    document.getElementById('content').innerHTML='';
+    document.getElementById('modalRoot')?.replaceChildren();
+    showSecurityGate('login',await window.finnoteDesktop.securityStatus());
+  }catch(error){
+    // Security must fail closed: a failed save must not leave financial data visible.
+    console.error('FinNote lock: save or lock failed', error);
+    try{ await window.finnoteDesktop.securityLock(); }catch(lockError){ console.error('FinNote lock IPC failed', lockError); }
+    DATA=null;
+    document.getElementById('content').innerHTML='';
+    document.getElementById('modalRoot')?.replaceChildren();
+    try{ showSecurityGate('login',await window.finnoteDesktop.securityStatus()); }
+    catch(gateError){
+      console.error('FinNote security gate failed',gateError);
+      document.body.replaceChildren(document.createTextNode('FinNote ถูกล็อกเพื่อความปลอดภัย กรุณาปิดและเปิดโปรแกรมใหม่ ข้อมูลที่ยังไม่ได้บันทึกอาจสูญหาย'));
+    }
+    showToast('FinNote ถูกล็อกแล้ว แต่การบันทึกอาจไม่สำเร็จ กรุณาตรวจสอบข้อมูลหลังเข้าสู่ระบบ');
+  }finally{
+    finNoteLocking=false;
+    if(DATA) resetFinNoteIdleTimer();
+  }
 }
 
 /* ============================================================

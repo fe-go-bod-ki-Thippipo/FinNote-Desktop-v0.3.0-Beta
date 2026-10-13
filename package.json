@@ -1,6 +1,6 @@
 {
   "name": "finnote-desktop",
-  "version": "0.3.0-beta.0",
+  "version": "1.0.0",
   "description": "FinNote Desktop - โปรแกรมบันทึกการเงินออฟไลน์ด้วย SQLite พร้อม Local Owner Login และ Encryption at Rest",
   "main": "electron/main.js",
   "author": "FinNote",
@@ -8,9 +8,9 @@
   "scripts": {
     "start": "electron .",
     "test": "node tests/validate-desktop.js && node --test \"tests/unit/**/*.test.js\"",
-    "dist:win": "node scripts/write-build-info.js --channel beta && electron-builder --win nsis --x64",
+    "dist:win": "node scripts/write-build-info.js --channel stable && electron-builder --win nsis --x64",
     "pack": "electron-builder --dir",
-    "dist:portable": "node scripts/write-build-info.js --channel beta && electron-builder --win portable --x64 --config electron-builder.portable.yml",
+    "dist:portable": "node scripts/write-build-info.js --channel stable && electron-builder --win portable --x64 --config electron-builder.portable.yml",
     "dist:uat:portable": "node scripts/write-build-info.js --channel uat && electron-builder --win portable --x64 --config electron-builder.uat.yml",
     "dist:uat:setup": "node scripts/write-build-info.js --channel uat && electron-builder --win nsis --x64 --config electron-builder.uat.yml"
   },
@@ -48,7 +48,7 @@
           ]
         }
       ],
-      "artifactName": "FinNote-Desktop-v0.3.0-Beta-Setup.${ext}",
+      "artifactName": "FinNote-Desktop-v1.0.0-Setup.${ext}",
       "icon": "build/icon.ico"
     },
     "nsis": {
