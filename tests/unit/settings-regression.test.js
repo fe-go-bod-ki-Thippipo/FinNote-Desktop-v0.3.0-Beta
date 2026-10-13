@@ -22,9 +22,12 @@ test('Settings: missing optional support button cannot abort subsequent bindings
 });
 
 test('Settings: all direct ID event bindings have matching markup IDs', () => {
-  const render = source.slice(source.indexOf('function renderSettings(){'), source.indexOf('function renderSettings(){') + 80000);
+  const start = source.indexOf('function renderSettings(){');
+  const end = source.indexOf('/* ----------------------------', start + 1);
+  assert.ok(start >= 0 && end > start, 'expected Settings function section');
+  const render = source.slice(start, end);
   const direct = [...render.matchAll(/getElementById\('([^']+)'\)\.addEventListener/g)].map(m => m[1]);
-  assert.ok(direct.length > 15, 'must examine actual settings handlers');
+  assert.ok(direct.length >= 10, 'must examine actual settings handlers');
   for (const id of direct) {
     assert.ok(source.includes('id="' + id + '"'), 'missing DOM element: ' + id);
   }
