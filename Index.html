@@ -6361,7 +6361,22 @@ function resetFinNoteIdleTimer(){
 }
 if(IS_DESKTOP){
   ['pointerdown','keydown','wheel','touchstart'].forEach(name=>document.addEventListener(name,resetFinNoteIdleTimer,{passive:true}));
-  window.finnoteDesktop.onSystemLock?.(()=>{lockFinNote().catch(error=>console.error('System Lock ไม่สำเร็จ',error));});
+  window.finnoteDesktop.onSystemLock?.(()=>{
+    // The main process has already invalidated the encryption key. Do not await a
+    // save: immediately clear sensitive DOM and show the locked gate.
+    clearTimeout(finNoteIdleTimer);
+    clearTimeout(desktopSaveTimer);
+    finNoteLocking=true;
+    DATA=null;
+    document.getElementById('content')?.replaceChildren();
+    document.getElementById('modalRoot')?.replaceChildren();
+    const gate=getSecurityGate();
+    gate.classList.remove('hidden');
+    gate.textContent='FinNote ถูกล็อกเพื่อความปลอดภัย กำลังเตรียมหน้าล็อกอิน…';
+    window.finnoteDesktop.securityStatus().then(status=>showSecurityGate('login',status))
+      .catch(error=>{console.error('System Lock gate failed',error);gate.textContent='FinNote ถูกล็อก กรุณาปิดและเปิดโปรแกรมใหม่';})
+      .finally(()=>{finNoteLocking=false;});
+  });
 }
 async function lockFinNote(){
   if(!IS_DESKTOP || !DATA || finNoteLocking) return;
