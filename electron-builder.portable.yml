@@ -17,7 +17,7 @@ win:
     - target: portable
       arch:
         - x64
-  artifactName: FinNote-Desktop-v0.3.0-Beta-Portable.${ext}
+  artifactName: FinNote-Desktop-v1.0.0-Portable.${ext}
   executableName: FinNote-Portable
   icon: build/icon.ico
 directories:
