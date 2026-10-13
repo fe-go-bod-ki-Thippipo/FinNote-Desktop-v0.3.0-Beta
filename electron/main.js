@@ -654,6 +654,7 @@ function registerIpc() {
     const now = new Date().toISOString();
     // The safety copy and restored payload are persisted together. Roll back in-memory
     // SQL.js changes if encryption, insertion or disk persistence fails.
+    const beforeRestore = database.export();
     database.run('BEGIN TRANSACTION');
     try {
       database.run('INSERT INTO backups (data_json, reason, created_at) VALUES (?, ?, ?)',
@@ -669,6 +670,10 @@ function registerIpc() {
       return { ok: true, updatedAt: now };
     } catch (error) {
       try { database.run('ROLLBACK'); } catch (_) {}
+      // COMMIT may already have happened when disk persistence fails.
+      // Restore the in-memory database to the exact pre-restore snapshot.
+      try { database.close(); } catch (_) {}
+      database = new SQLRuntime.Database(beforeRestore);
       throw error;
     }
   });
