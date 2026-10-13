@@ -70,7 +70,7 @@ if (!pkg.build.files.includes('build-info.json')) throw new Error('package.json 
 // Regression guards F-M1: production packaging must refresh stable metadata before electron-builder.
 for (const scriptName of ['dist:win', 'dist:portable']) {
   const script = String(pkg.scripts?.[scriptName] || '');
-  if (!/^node scripts\/write-build-info\.js --channel beta && electron-builder\b/.test(script)) {
+  if (!/^node scripts\/write-build-info\.js --channel stable && electron-builder\b/.test(script)) {
     throw new Error(`${scriptName} ต้องสร้าง stable build metadata ก่อนแพ็กโปรแกรม (F-M1)`);
   }
 }
