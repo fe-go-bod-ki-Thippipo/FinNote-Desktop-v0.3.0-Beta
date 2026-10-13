@@ -681,7 +681,7 @@ app.whenReady().then(async () => {
     registerIpc();
     createWindow();
     // Notify renderer to persist changes and lock on OS lock/suspend.
-    for (const eventName of ['lock-screen', 'suspend']) {
+    for (const eventName of ['lock-screen', 'suspend', 'resume', 'unlock-screen']) {
       powerMonitor.on(eventName, () => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app:system-lock');
       });
