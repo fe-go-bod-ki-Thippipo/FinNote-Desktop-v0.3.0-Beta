@@ -740,7 +740,8 @@ app.whenReady().then(async () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('app:system-lock');
           // Hide any sensitive renderer content even if its lock handler stalls.
-          mainWindow.hide();
+          // Keep the window available for the renderer's password gate.
+          // Main-process key is already invalidated before notifying it.
         }
       });
     }
