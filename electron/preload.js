@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld('finnoteDesktop', Object.freeze({
   securityChangePassword: data => ipcRenderer.invoke('security:change-password', data),
   securityNewRecovery: password => ipcRenderer.invoke('security:new-recovery', password),
   securityLock: () => ipcRenderer.invoke('security:lock'),
+  onSystemLock: callback => {
+    if (typeof callback !== 'function') return;
+    ipcRenderer.on('app:system-lock', () => callback());
+  },
   diagnostics: () => ipcRenderer.invoke('app:diagnostics'),
   legacyStatus: () => ipcRenderer.invoke('legacy:status'),
   legacyMigrate: options => ipcRenderer.invoke('legacy:migrate', options)
