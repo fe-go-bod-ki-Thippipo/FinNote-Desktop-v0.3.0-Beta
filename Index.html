@@ -6304,6 +6304,7 @@ function resetFinNoteIdleTimer(){
 }
 if(IS_DESKTOP){
   ['pointerdown','keydown','wheel','touchstart'].forEach(name=>document.addEventListener(name,resetFinNoteIdleTimer,{passive:true}));
+  window.finnoteDesktop.onSystemLock?.(()=>{lockFinNote().catch(error=>console.error('System Lock ไม่สำเร็จ',error));});
 }
 async function lockFinNote(){
   if(!IS_DESKTOP || !DATA || finNoteLocking) return;
