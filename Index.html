@@ -5713,6 +5713,11 @@ async function openDesktopRestoreBackups(){
   }catch(error){console.error('FinNote backup list failed',error);showToast(error.message||'ไม่สามารถแสดงข้อมูลสำรอง');}
 }
 
+// Delegate once: settings is re-rendered frequently and direct button handlers are lost.
+document.addEventListener('click', event=>{
+  if(event.target.closest('#btnOpenRestoreBackups')) openDesktopRestoreBackups();
+});
+
 function renderSettings(){
   const s = DATA.settings;
   const lastSaved = localStorage.getItem(STORAGE_KEY + '_lastSaved');
